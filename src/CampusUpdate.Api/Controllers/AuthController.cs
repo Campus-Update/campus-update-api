@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using CampusUpdate.Api.Authentication;
 using CampusUpdate.Api.Contracts;
 using CampusUpdate.Domain.Users;
 using CampusUpdate.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -84,21 +86,119 @@ public sealed class AuthController(
         return Ok(new AuthResponse(user.Id, pair.AccessToken, pair.RefreshToken, pair.ExpiresAt));
     }
 
-    private async Task<bool> AcademicSelectionIsValid(RegisterRequest request, CancellationToken cancellationToken)
+    [Authorize]
+    [HttpGet("profile")]
+    public async Task<ActionResult<UserProfileResponse>> GetProfile(CancellationToken cancellationToken)
     {
-        if (!await db.Institutions.AnyAsync(x => x.Id == request.InstitutionId && x.IsActive, cancellationToken))
+        var user = await GetCurrentUser(cancellationToken);
+        return user is null ? Unauthorized() : Ok(ToProfileResponse(user));
+    }
+
+    [Authorize]
+    [HttpPut("profile")]
+    public async Task<ActionResult<UserProfileResponse>> UpdateProfile(
+        UpdateProfileRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null)
+            return Unauthorized();
+
+        user.FirstName = request.FirstName.Trim();
+        user.LastName = request.LastName.Trim();
+        user.MatriculationOrStaffNumber = request.MatriculationOrStaffNumber?.Trim();
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(ToProfileResponse(user));
+    }
+
+    [Authorize]
+    [HttpPut("academic-settings")]
+    public async Task<ActionResult<UserProfileResponse>> UpdateAcademicSettings(
+        AcademicSettingsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null)
+            return Unauthorized();
+        if (!await AcademicSelectionIsValid(
+                request.InstitutionId,
+                request.FacultyId,
+                request.DepartmentId,
+                request.ProgrammeId,
+                request.AcademicLevelId,
+                cancellationToken))
+            return BadRequest(new ProblemDetails { Title = "The selected academic hierarchy is invalid." });
+
+        user.InstitutionId = request.InstitutionId;
+        user.FacultyId = request.FacultyId;
+        user.DepartmentId = request.DepartmentId;
+        user.ProgrammeId = request.ProgrammeId;
+        user.AcademicLevelId = request.AcademicLevelId;
+        user.FeedPreference.NewsEnabled = request.NewsEnabled;
+        user.FeedPreference.AnnouncementsEnabled = request.AnnouncementsEnabled;
+        user.FeedPreference.EventsEnabled = request.EventsEnabled;
+        user.FeedPreference.AdvertisementsEnabled = request.AdvertisementsEnabled;
+        user.FeedPreference.PushNotificationsEnabled = request.PushNotificationsEnabled;
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(ToProfileResponse(user));
+    }
+
+    private async Task<AppUser?> GetCurrentUser(CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+            return null;
+        return await db.Users.Include(x => x.FeedPreference)
+            .SingleOrDefaultAsync(x => x.Id == userId && x.IsActive, cancellationToken);
+    }
+
+    private static UserProfileResponse ToProfileResponse(AppUser user) => new(
+        user.Id,
+        user.Email,
+        user.FirstName,
+        user.LastName,
+        user.Role,
+        user.MatriculationOrStaffNumber,
+        user.InstitutionId,
+        user.FacultyId,
+        user.DepartmentId,
+        user.ProgrammeId,
+        user.AcademicLevelId,
+        user.FeedPreference.NewsEnabled,
+        user.FeedPreference.AnnouncementsEnabled,
+        user.FeedPreference.EventsEnabled,
+        user.FeedPreference.AdvertisementsEnabled,
+        user.FeedPreference.PushNotificationsEnabled);
+
+    private async Task<bool> AcademicSelectionIsValid(RegisterRequest request, CancellationToken cancellationToken)
+        => await AcademicSelectionIsValid(
+            request.InstitutionId,
+            request.FacultyId,
+            request.DepartmentId,
+            request.ProgrammeId,
+            request.AcademicLevelId,
+            cancellationToken);
+
+    private async Task<bool> AcademicSelectionIsValid(
+        Guid institutionId,
+        Guid? facultyId,
+        Guid? departmentId,
+        Guid? programmeId,
+        Guid? academicLevelId,
+        CancellationToken cancellationToken)
+    {
+        if (!await db.Institutions.AnyAsync(x => x.Id == institutionId && x.IsActive, cancellationToken))
             return false;
-        if (request.FacultyId is not null && !await db.Faculties.AnyAsync(
-                x => x.Id == request.FacultyId && x.InstitutionId == request.InstitutionId, cancellationToken))
+        if (facultyId is not null && !await db.Faculties.AnyAsync(
+                x => x.Id == facultyId && x.InstitutionId == institutionId, cancellationToken))
             return false;
-        if (request.DepartmentId is not null && (request.FacultyId is null || !await db.Departments.AnyAsync(
-                x => x.Id == request.DepartmentId && x.FacultyId == request.FacultyId, cancellationToken)))
+        if (departmentId is not null && (facultyId is null || !await db.Departments.AnyAsync(
+                x => x.Id == departmentId && x.FacultyId == facultyId, cancellationToken)))
             return false;
-        if (request.ProgrammeId is not null && (request.DepartmentId is null || !await db.Programmes.AnyAsync(
-                x => x.Id == request.ProgrammeId && x.DepartmentId == request.DepartmentId, cancellationToken)))
+        if (programmeId is not null && (departmentId is null || !await db.Programmes.AnyAsync(
+                x => x.Id == programmeId && x.DepartmentId == departmentId, cancellationToken)))
             return false;
-        if (request.AcademicLevelId is not null && (request.ProgrammeId is null || !await db.AcademicLevels.AnyAsync(
-                x => x.Id == request.AcademicLevelId && x.ProgrammeId == request.ProgrammeId, cancellationToken)))
+        if (academicLevelId is not null && (programmeId is null || !await db.AcademicLevels.AnyAsync(
+                x => x.Id == academicLevelId && x.ProgrammeId == programmeId, cancellationToken)))
             return false;
         return true;
     }

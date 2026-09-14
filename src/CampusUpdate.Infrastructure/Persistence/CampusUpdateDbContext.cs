@@ -14,6 +14,7 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Programme> Programmes => Set<Programme>();
     public DbSet<AcademicLevel> AcademicLevels => Set<AcademicLevel>();
+    public DbSet<AcademicCalendar> AcademicCalendars => Set<AcademicCalendar>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<FeedPreference> FeedPreferences => Set<FeedPreference>();
     public DbSet<ContentItem> ContentItems => Set<ContentItem>();
@@ -81,6 +82,17 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
         {
             entity.Property(x => x.Name).HasMaxLength(50);
             entity.HasIndex(x => new { x.ProgrammeId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<AcademicCalendar>(entity =>
+        {
+            entity.Property(x => x.Title).HasMaxLength(250);
+            entity.Property(x => x.AcademicSession).HasMaxLength(50);
+            entity.Property(x => x.ImageUrl).HasMaxLength(2048);
+            entity.HasIndex(x => new { x.InstitutionId, x.IsOfficial, x.PublishedAt });
+            entity.HasOne(x => x.Institution)
+                .WithMany(x => x.AcademicCalendars)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

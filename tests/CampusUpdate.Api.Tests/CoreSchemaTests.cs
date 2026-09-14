@@ -89,6 +89,39 @@ public sealed class CoreSchemaTests
     }
 
     [Fact]
+    public async Task LatestOfficialAcademicCalendarCanBeSelected()
+    {
+        await using var db = CreateContext();
+        var institution = new Institution { Name = "Example", Slug = "example" };
+        db.AcademicCalendars.AddRange(
+            new AcademicCalendar
+            {
+                Institution = institution,
+                Title = "Draft calendar",
+                AcademicSession = "2026/2027",
+                ImageUrl = "https://example.test/draft.png",
+                IsOfficial = false,
+                PublishedAt = new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero)
+            },
+            new AcademicCalendar
+            {
+                Institution = institution,
+                Title = "Official calendar",
+                AcademicSession = "2026/2027",
+                ImageUrl = "https://example.test/official.png",
+                PublishedAt = new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero)
+            });
+        await db.SaveChangesAsync();
+
+        var latestOfficial = await db.AcademicCalendars
+            .Where(x => x.InstitutionId == institution.Id && x.IsOfficial)
+            .OrderByDescending(x => x.PublishedAt)
+            .FirstAsync();
+
+        Assert.Equal("https://example.test/official.png", latestOfficial.ImageUrl);
+    }
+
+    [Fact]
     public void TokenServiceCreatesSignedAccessAndRotatableRefreshTokens()
     {
         var service = new TokenService(Options.Create(new JwtOptions

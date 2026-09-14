@@ -15,8 +15,13 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
 {
     [Authorize]
     [HttpGet]
+    [HttpGet("/api/v1/feed")]
     public async Task<ActionResult<IReadOnlyCollection<ContentResponse>>> GetFeed(
         [FromQuery] ContentType? type,
+        [FromQuery] UrgencyLevel? urgency,
+        [FromQuery] Guid? facultyId,
+        [FromQuery] Guid? departmentId,
+        [FromQuery] Guid? academicLevelId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
@@ -26,12 +31,22 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
             return Unauthorized();
 
-        var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
+        var user = await db.Users.AsNoTracking()
+            .Include(x => x.FeedPreference)
+            .SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
         if (user is null)
             return Unauthorized();
+        if ((facultyId.HasValue && facultyId != user.FacultyId) ||
+            (departmentId.HasValue && departmentId != user.DepartmentId) ||
+            (academicLevelId.HasValue && academicLevelId != user.AcademicLevelId))
+            return Forbid();
 
         var query = db.ContentItems.AsNoTracking().Where(x =>
             x.Status == ContentStatus.Published &&
+            ((x.Type == ContentType.News && user.FeedPreference.NewsEnabled) ||
+             (x.Type == ContentType.Announcement && user.FeedPreference.AnnouncementsEnabled) ||
+             (x.Type == ContentType.Event && user.FeedPreference.EventsEnabled) ||
+             (x.Type == ContentType.Advertisement && user.FeedPreference.AdvertisementsEnabled)) &&
             x.Audiences.Any(a =>
                 a.InstitutionId == user.InstitutionId &&
                 (a.FacultyId == null || a.FacultyId == user.FacultyId) &&
@@ -40,6 +55,8 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
                 (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)));
         if (type.HasValue)
             query = query.Where(x => x.Type == type.Value);
+        if (urgency.HasValue)
+            query = query.Where(x => x.Urgency == urgency.Value);
 
         var items = await query
             .OrderByDescending(x => x.Urgency)
