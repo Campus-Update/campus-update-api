@@ -10,6 +10,18 @@ public sealed class Institution : Entity
     public string? LogoUrl { get; set; }
     public bool IsActive { get; set; } = true;
     public ICollection<Faculty> Faculties { get; set; } = [];
+    public ICollection<AcademicCalendar> AcademicCalendars { get; set; } = [];
+}
+
+public sealed class AcademicCalendar : Entity
+{
+    public required string Title { get; set; }
+    public required string AcademicSession { get; set; }
+    public required string ImageUrl { get; set; }
+    public bool IsOfficial { get; set; } = true;
+    public DateTimeOffset PublishedAt { get; set; }
+    public Guid InstitutionId { get; set; }
+    public Institution Institution { get; set; } = null!;
 }
 
 public sealed class Faculty : Entity

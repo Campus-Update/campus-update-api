@@ -19,3 +19,35 @@ public sealed record RegisterRequest(
 public sealed record LoginRequest([property: EmailAddress] string Email, string Password);
 public sealed record RefreshRequest(string RefreshToken);
 public sealed record AuthResponse(Guid UserId, string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
+public sealed record UpdateProfileRequest(
+    [property: Required, MaxLength(100)] string FirstName,
+    [property: Required, MaxLength(100)] string LastName,
+    string? MatriculationOrStaffNumber);
+public sealed record AcademicSettingsRequest(
+    Guid InstitutionId,
+    Guid? FacultyId,
+    Guid? DepartmentId,
+    Guid? ProgrammeId,
+    Guid? AcademicLevelId,
+    bool NewsEnabled,
+    bool AnnouncementsEnabled,
+    bool EventsEnabled,
+    bool AdvertisementsEnabled,
+    bool PushNotificationsEnabled);
+public sealed record UserProfileResponse(
+    Guid Id,
+    string Email,
+    string FirstName,
+    string LastName,
+    UserRole Role,
+    string? MatriculationOrStaffNumber,
+    Guid InstitutionId,
+    Guid? FacultyId,
+    Guid? DepartmentId,
+    Guid? ProgrammeId,
+    Guid? AcademicLevelId,
+    bool NewsEnabled,
+    bool AnnouncementsEnabled,
+    bool EventsEnabled,
+    bool AdvertisementsEnabled,
+    bool PushNotificationsEnabled);
