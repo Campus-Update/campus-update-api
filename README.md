@@ -32,7 +32,7 @@ dotnet tool run dotnet-ef database update --project src/CampusUpdate.Infrastruct
 dotnet run --project src/CampusUpdate.Api
 ```
 
-The API starts using the URL shown by `dotnet run`. Check `/health` and, in development, `/openapi/v1.json`.
+The API starts using the URL shown by `dotnet run`. Check `/health` and, in development, use the interactive Swagger UI at `/swagger` or the OpenAPI document at `/openapi/v1.json`.
 
 ## Quality checks
 
