@@ -49,10 +49,10 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
              (x.Type == ContentType.Advertisement && user.FeedPreference.AdvertisementsEnabled)) &&
             x.Audiences.Any(a =>
                 a.InstitutionId == user.InstitutionId &&
-                (a.FacultyId == null || a.FacultyId == user.FacultyId) &&
+                (user.FeedPreference.AllCampusFeed || ((a.FacultyId == null || a.FacultyId == user.FacultyId) &&
                 (a.DepartmentId == null || a.DepartmentId == user.DepartmentId) &&
                 (a.ProgrammeId == null || a.ProgrammeId == user.ProgrammeId) &&
-                (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)));
+                (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))));
         if (type.HasValue)
             query = query.Where(x => x.Type == type.Value);
         if (urgency.HasValue)
@@ -81,6 +81,11 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
             return BadRequest(new ProblemDetails { Title = "At least one audience is required." });
         if (author.Role != UserRole.SuperAdmin && request.Audiences.Any(x => x.InstitutionId != author.InstitutionId))
             return Forbid();
+        foreach (var audience in request.Audiences)
+        {
+            if (!await AudienceIsValid(audience, cancellationToken))
+                return BadRequest(new ProblemDetails { Title = "The selected audience hierarchy is invalid." });
+        }
         if (request.Type == ContentType.Event && request.EventStartsAt is null)
             return BadRequest(new ProblemDetails { Title = "EventStartsAt is required for events." });
         if (request.EventEndsAt < request.EventStartsAt)
@@ -125,21 +130,41 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
             return Unauthorized();
-        var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
+        var user = await db.Users.AsNoTracking().Include(x => x.FeedPreference)
+            .SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
         if (user is null)
             return Unauthorized();
 
-        var canReview = user.Role is UserRole.SchoolAdmin or UserRole.SuperAdmin;
         var item = await db.ContentItems.AsNoTracking()
-            .Where(x => x.Id == id && (canReview ||
+            .Where(x => x.Id == id && (user.Role == UserRole.SuperAdmin ||
+                (user.Role == UserRole.SchoolAdmin && x.Audiences.Any(a => a.InstitutionId == user.InstitutionId)) ||
                 (x.Status == ContentStatus.Published && x.Audiences.Any(a =>
                     a.InstitutionId == user.InstitutionId &&
-                    (a.FacultyId == null || a.FacultyId == user.FacultyId) &&
+                    (user.FeedPreference.AllCampusFeed || ((a.FacultyId == null || a.FacultyId == user.FacultyId) &&
                     (a.DepartmentId == null || a.DepartmentId == user.DepartmentId) &&
                     (a.ProgrammeId == null || a.ProgrammeId == user.ProgrammeId) &&
-                    (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))))
+                    (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))))))
             .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt))
             .SingleOrDefaultAsync(cancellationToken);
         return item is null ? NotFound() : Ok(item);
+    }
+
+    private async Task<bool> AudienceIsValid(AudienceRequest audience, CancellationToken cancellationToken)
+    {
+        if (!await db.Institutions.AnyAsync(x => x.Id == audience.InstitutionId && x.IsActive, cancellationToken))
+            return false;
+        if (audience.FacultyId is not null && !await db.Faculties.AnyAsync(
+                x => x.Id == audience.FacultyId && x.InstitutionId == audience.InstitutionId, cancellationToken))
+            return false;
+        if (audience.DepartmentId is not null && (audience.FacultyId is null || !await db.Departments.AnyAsync(
+                x => x.Id == audience.DepartmentId && x.FacultyId == audience.FacultyId, cancellationToken)))
+            return false;
+        if (audience.ProgrammeId is not null && (audience.DepartmentId is null || !await db.Programmes.AnyAsync(
+                x => x.Id == audience.ProgrammeId && x.DepartmentId == audience.DepartmentId, cancellationToken)))
+            return false;
+        if (audience.AcademicLevelId is not null && (audience.ProgrammeId is null || !await db.AcademicLevels.AnyAsync(
+                x => x.Id == audience.AcademicLevelId && x.ProgrammeId == audience.ProgrammeId, cancellationToken)))
+            return false;
+        return true;
     }
 }

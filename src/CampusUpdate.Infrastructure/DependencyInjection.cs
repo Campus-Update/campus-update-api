@@ -13,6 +13,8 @@ public static class DependencyInjection
     {
         var connectionString = configuration.GetConnectionString("Postgres")
             ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
 
         services.AddDbContext<CampusUpdateDbContext>(options =>
             options.UseNpgsql(connectionString));

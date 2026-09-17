@@ -44,3 +44,9 @@ dotnet test --configuration Release --no-build
 ```
 
 Production deployments must override `ConnectionStrings__Postgres` and `Jwt__Key` with secrets.
+
+## Implementation milestones
+
+See [the three-stage implementation plan](docs/implementation-stages.md), [environment and seed setup](docs/environments.md), and [foundation API changes](docs/foundation-api.md).
+
+The development database password must match `ConnectionStrings__Postgres` in your shell when running the API or migrations. `.env` is read by Docker Compose, not automatically by ASP.NET Core. Base configuration contains no production connection string or signing secret.

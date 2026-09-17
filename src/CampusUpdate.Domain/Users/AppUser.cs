@@ -37,6 +37,7 @@ public sealed class AppUser : Entity
 
 public sealed class FeedPreference : Entity
 {
+    public bool AllCampusFeed { get; set; }
     public Guid UserId { get; set; }
     public AppUser User { get; set; } = null!;
     public bool NewsEnabled { get; set; } = true;

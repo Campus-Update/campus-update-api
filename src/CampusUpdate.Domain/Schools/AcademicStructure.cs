@@ -6,6 +6,7 @@ public sealed class Institution : Entity
 {
     public required string Name { get; set; }
     public required string Slug { get; set; }
+    public string? State { get; set; }
     public string? Acronym { get; set; }
     public string? LogoUrl { get; set; }
     public bool IsActive { get; set; } = true;

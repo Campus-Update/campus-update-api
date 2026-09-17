@@ -4,10 +4,10 @@ using CampusUpdate.Domain.Users;
 namespace CampusUpdate.Api.Contracts;
 
 public sealed record RegisterRequest(
-    [property: Required, EmailAddress] string Email,
-    [property: Required, MinLength(8)] string Password,
-    [property: Required, MaxLength(100)] string FirstName,
-    [property: Required, MaxLength(100)] string LastName,
+    [Required, EmailAddress] string Email,
+    [Required, MinLength(8)] string Password,
+    [Required, MaxLength(100)] string FirstName,
+    [Required, MaxLength(100)] string LastName,
     UserRole Role,
     Guid InstitutionId,
     Guid? FacultyId,
@@ -16,12 +16,12 @@ public sealed record RegisterRequest(
     Guid? AcademicLevelId,
     string? MatriculationOrStaffNumber);
 
-public sealed record LoginRequest([property: EmailAddress] string Email, string Password);
+public sealed record LoginRequest([EmailAddress] string Email, string Password);
 public sealed record RefreshRequest(string RefreshToken);
 public sealed record AuthResponse(Guid UserId, string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
 public sealed record UpdateProfileRequest(
-    [property: Required, MaxLength(100)] string FirstName,
-    [property: Required, MaxLength(100)] string LastName,
+    [Required, MaxLength(100)] string FirstName,
+    [Required, MaxLength(100)] string LastName,
     string? MatriculationOrStaffNumber);
 public sealed record AcademicSettingsRequest(
     Guid InstitutionId,
@@ -33,7 +33,8 @@ public sealed record AcademicSettingsRequest(
     bool AnnouncementsEnabled,
     bool EventsEnabled,
     bool AdvertisementsEnabled,
-    bool PushNotificationsEnabled);
+    bool PushNotificationsEnabled,
+    bool AllCampusFeed = false);
 public sealed record UserProfileResponse(
     Guid Id,
     string Email,
@@ -50,4 +51,5 @@ public sealed record UserProfileResponse(
     bool AnnouncementsEnabled,
     bool EventsEnabled,
     bool AdvertisementsEnabled,
-    bool PushNotificationsEnabled);
+    bool PushNotificationsEnabled,
+    bool AllCampusFeed);

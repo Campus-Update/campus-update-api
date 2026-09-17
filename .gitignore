@@ -3,11 +3,17 @@
 .vs/
 .vscode/
 .idea/
+.vercel/
+.agents/
+skills-lock.json
 *.user
 *.suo
 .env
 .env.*
 !.env.example
+!.env.*.example
 TestResults/
 coverage/
 
+.vercel
+.env*

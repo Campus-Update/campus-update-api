@@ -9,9 +9,9 @@ public sealed record FacultyResponse(Guid Id, string Name, string Code, IReadOnl
 public sealed record InstitutionResponse(Guid Id, string Name, string Slug, string? Acronym, string? LogoUrl, IReadOnlyCollection<FacultyResponse> Faculties);
 public sealed record CreateAcademicCalendarRequest(
     Guid InstitutionId,
-    [property: Required, MaxLength(250)] string Title,
-    [property: Required, MaxLength(50)] string AcademicSession,
-    [property: Required, Url, MaxLength(2048)] string ImageUrl,
+    [Required, MaxLength(250)] string Title,
+    [Required, MaxLength(50)] string AcademicSession,
+    [Required, Url, MaxLength(2048)] string ImageUrl,
     DateTimeOffset PublishedAt,
     bool IsOfficial = true);
 public sealed record AcademicCalendarResponse(
