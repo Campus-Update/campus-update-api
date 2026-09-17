@@ -120,6 +120,9 @@ public sealed class AuthController(
         var user = await GetCurrentUser(cancellationToken);
         if (user is null)
             return Unauthorized();
+        if (user.Role is UserRole.SchoolAdmin or UserRole.SuperAdmin &&
+            user.InstitutionId != request.InstitutionId)
+            return Forbid();
         if (!await AcademicSelectionIsValid(
                 request.InstitutionId,
                 request.FacultyId,
@@ -139,6 +142,7 @@ public sealed class AuthController(
         user.FeedPreference.EventsEnabled = request.EventsEnabled;
         user.FeedPreference.AdvertisementsEnabled = request.AdvertisementsEnabled;
         user.FeedPreference.PushNotificationsEnabled = request.PushNotificationsEnabled;
+        user.FeedPreference.AllCampusFeed = request.AllCampusFeed;
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToProfileResponse(user));
     }
@@ -167,7 +171,8 @@ public sealed class AuthController(
         user.FeedPreference.AnnouncementsEnabled,
         user.FeedPreference.EventsEnabled,
         user.FeedPreference.AdvertisementsEnabled,
-        user.FeedPreference.PushNotificationsEnabled);
+        user.FeedPreference.PushNotificationsEnabled,
+        user.FeedPreference.AllCampusFeed);
 
     private async Task<bool> AcademicSelectionIsValid(RegisterRequest request, CancellationToken cancellationToken)
         => await AcademicSelectionIsValid(

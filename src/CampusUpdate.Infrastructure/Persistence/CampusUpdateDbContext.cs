@@ -20,6 +20,7 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
     public DbSet<ContentItem> ContentItems => Set<ContentItem>();
     public DbSet<ContentAudience> ContentAudiences => Set<ContentAudience>();
     public DbSet<ContentAttachment> ContentAttachments => Set<ContentAttachment>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
@@ -46,6 +47,12 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
         ConfigureSchools(modelBuilder);
         ConfigureUsers(modelBuilder);
         ConfigureContent(modelBuilder);
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.Property(x => x.Action).HasMaxLength(100);
+            entity.Property(x => x.Details).HasMaxLength(2000);
+            entity.HasIndex(x => new { x.InstitutionId, x.CreatedAt });
+        });
     }
 
     private static void ConfigureSchools(ModelBuilder modelBuilder)
@@ -54,6 +61,7 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
         {
             entity.Property(x => x.Name).HasMaxLength(200);
             entity.Property(x => x.Slug).HasMaxLength(120);
+            entity.Property(x => x.State).HasMaxLength(100);
             entity.HasIndex(x => x.Slug).IsUnique();
         });
 

@@ -11,13 +11,13 @@ public sealed record AudienceRequest(
     Guid? AcademicLevelId);
 
 public sealed record CreateContentRequest(
-    [property: Required, MaxLength(250)] string Title,
-    [property: Required] string Body,
+    [Required, MaxLength(250)] string Title,
+    [Required] string Body,
     string? Summary,
     ContentType Type,
     UrgencyLevel Urgency,
     SourceType SourceType,
-    [property: Required, MaxLength(200)] string SourceName,
+    [Required, MaxLength(200)] string SourceName,
     DateTimeOffset? EventStartsAt,
     DateTimeOffset? EventEndsAt,
     string? EventLocation,

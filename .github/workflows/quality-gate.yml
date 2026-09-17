@@ -12,6 +12,21 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: campus_update_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d campus_update_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ConnectionStrings__Postgres: Host=localhost;Port=5432;Database=campus_update_ci;Username=postgres;Password=ci-only-password
+      Jwt__Key: ci-only-signing-key-with-at-least-32-bytes
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -24,4 +39,40 @@ jobs:
       - run: dotnet test --configuration Release --no-build --collect:"XPlat Code Coverage"
       - name: Verify migrations
         run: dotnet tool run dotnet-ef migrations script --idempotent --project src/CampusUpdate.Infrastructure --startup-project src/CampusUpdate.Api --output migration.sql
+      - name: Check model and apply migrations
+        run: |
+          dotnet tool run dotnet-ef migrations has-pending-model-changes --project src/CampusUpdate.Infrastructure --startup-project src/CampusUpdate.Api
+          dotnet tool run dotnet-ef database update --project src/CampusUpdate.Infrastructure --startup-project src/CampusUpdate.Api
+      - name: Verify initial administrator bootstrap
+        env:
+          ASPNETCORE_ENVIRONMENT: Staging
+          Bootstrap__Email: bootstrap@campus-update.test
+          Bootstrap__Password: ci-bootstrap-password
+          Bootstrap__SchoolName: CI School
+          Bootstrap__SchoolSlug: ci-school
+          Bootstrap__SchoolState: Test
+        run: |
+          dotnet run --configuration Release --no-build --no-launch-profile --project src/CampusUpdate.Api -- --bootstrap-admin
+          if dotnet run --configuration Release --no-build --no-launch-profile --project src/CampusUpdate.Api -- --bootstrap-admin > bootstrap-retry.log 2>&1; then
+            echo "Bootstrap unexpectedly allowed a second super administrator"
+            exit 1
+          fi
+          grep -q "A super administrator already exists" bootstrap-retry.log
+      - name: Verify development seed and repeatability
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          Seed__Password: ci-seed-password
+        run: |
+          dotnet run --configuration Release --no-build --no-launch-profile --project src/CampusUpdate.Api -- --seed-development
+          dotnet run --configuration Release --no-build --no-launch-profile --project src/CampusUpdate.Api -- --seed-development
+      - name: Verify seeding is blocked outside development
+        env:
+          ASPNETCORE_ENVIRONMENT: Staging
+          Seed__Password: ci-seed-password
+        run: |
+          if dotnet run --configuration Release --no-build --no-launch-profile --project src/CampusUpdate.Api -- --seed-development > seed-rejected.log 2>&1; then
+            echo "Development seed unexpectedly ran in Staging"
+            exit 1
+          fi
+          grep -q "Demo seeding is restricted to Development" seed-rejected.log
 
