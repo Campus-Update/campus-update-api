@@ -7,7 +7,8 @@ Central REST API for the Campus Update mobile, school-admin, and super-admin app
 - ASP.NET Core 10
 - PostgreSQL 17 with Entity Framework Core
 - JWT access and rotating refresh tokens
-- OpenAPI at `/openapi/v1.json` in development
+- OpenAPI at `/openapi/v1.json`
+- Swagger UI at `/swagger/index.html` 
 - Firebase Cloud Messaging integration is planned for push delivery only
 
 ## Core schema
