@@ -26,6 +26,22 @@ public sealed record CreateContentRequest(
     string? TargetUrl,
     IReadOnlyCollection<AudienceRequest> Audiences);
 
+public sealed record UpdateContentRequest(
+    [Required, MaxLength(250)] string Title,
+    [Required] string Body,
+    string? Summary,
+    UrgencyLevel Urgency,
+    [Required, MaxLength(200)] string SourceName,
+    DateTimeOffset? EventStartsAt,
+    DateTimeOffset? EventEndsAt,
+    string? EventLocation,
+    string? RegistrationUrl,
+    string? SponsorName,
+    string? TargetUrl,
+    IReadOnlyCollection<AudienceRequest> Audiences);
+
+public sealed record ChangeContentStatusRequest(ContentStatus Status);
+
 public sealed record ContentResponse(
     Guid Id,
     string Title,
