@@ -1,0 +1,12 @@
+.git
+.github
+.vercel
+.env
+.env.*
+**/bin
+**/obj
+docs
+TestResults
+coverage
+*.user
+*.suo
