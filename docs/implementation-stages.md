@@ -20,16 +20,21 @@ Cloud acceptance criteria are external tasks, not automatically completed by the
 
 Suggested commit: `feat: add publishing feeds media and moderation workflows`
 
-- Draft/review/publish transitions, content update/delete, and enforcement of school scope for every new operation.
-- Student/staff/all audience selection, complete feed filters, search and news categories. All-campus remains limited to the user's institution.
-- Cloud storage adapter and buckets, public/authenticated asset rules, validated JPEG/PNG/WebP/PDF uploads, size limits, safe names and image compression.
-- Calendar image upload (maximum 5 MB), active-calendar replacement, `/calendar/current`, and a defined 404 empty-state response.
-- Ad submission with image, targeting and click URL; moderation queue and approved lifecycle including payment confirmation. Payment provider and cloud storage provider require decisions before implementation.
-- Complete content/event/ad DTOs and contract tests; update API specifications.
+Status: In progress. The content-management and calendar foundations are implemented; provider-backed uploads and advertisement workflows remain.
+
+- Implemented: draft, pending-approval, published, rejected and archived status transitions with role-controlled moderation.
+- Implemented: content editing, school-scoped archive/delete, audience validation and feed text search with existing type, urgency, academic-scope and pagination filters.
+- Implemented: academic calendar replacement with automatic deactivation of the previous official calendar.
+- Configured: separate private Backblaze B2 buckets and application keys for staging and production; environment templates and deployment documentation are updated.
+- Remaining: Backblaze upload adapter, signed/authorized media URLs, JPEG/PNG/WebP/PDF validation, size limits, safe names and image compression.
+- Remaining: calendar image upload limits, complete event/advertisement/media DTOs, advertisement moderation and payment confirmation.
+- Remaining: contract and endpoint tests for the new Stage 2 operations.
 
 ## 3. Notifications, telemetry and release verification
 
 Suggested commit: `feat: add targeted notifications analytics and release checks`
+
+Status: Planned.
 
 - FCM credentials and device registration, reliable publication triggers, segmented delivery and notification preference enforcement.
 - Notification history, read/unread status, device delivery/open acknowledgements.

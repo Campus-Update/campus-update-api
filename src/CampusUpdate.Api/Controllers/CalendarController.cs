@@ -54,6 +54,12 @@ public sealed class CalendarController(CampusUpdateDbContext db) : ControllerBas
                 cancellationToken))
             return BadRequest(new ProblemDetails { Title = "The selected institution is invalid." });
 
+        if (request.IsOfficial)
+        {
+            var existing = await db.AcademicCalendars.Where(x => x.InstitutionId == request.InstitutionId && x.IsOfficial).ToListAsync(cancellationToken);
+            foreach (var oldCalendar in existing) oldCalendar.IsOfficial = false;
+        }
+
         var calendar = new AcademicCalendar
         {
             InstitutionId = request.InstitutionId,
@@ -74,6 +80,27 @@ public sealed class CalendarController(CampusUpdateDbContext db) : ControllerBas
             calendar.ImageUrl,
             calendar.PublishedAt);
         return Created("/api/v1/calendar/latest", response);
+    }
+
+    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [HttpPut("{id:guid}")]
+    public async Task<ActionResult<AcademicCalendarResponse>> Replace(Guid id, CreateAcademicCalendarRequest request, CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (calendar is null) return NotFound();
+        if (user.Role != UserRole.SuperAdmin && (calendar.InstitutionId != user.InstitutionId || request.InstitutionId != user.InstitutionId)) return Forbid();
+        if (!await db.Institutions.AnyAsync(x => x.Id == request.InstitutionId && x.IsActive, cancellationToken)) return BadRequest();
+        if (request.IsOfficial)
+        {
+            var existing = await db.AcademicCalendars.Where(x => x.InstitutionId == request.InstitutionId && x.IsOfficial && x.Id != id).ToListAsync(cancellationToken);
+            foreach (var old in existing) old.IsOfficial = false;
+        }
+        calendar.InstitutionId = request.InstitutionId; calendar.Title = request.Title.Trim(); calendar.AcademicSession = request.AcademicSession.Trim();
+        calendar.ImageUrl = request.ImageUrl.Trim(); calendar.PublishedAt = request.PublishedAt; calendar.IsOfficial = request.IsOfficial;
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(new AcademicCalendarResponse(calendar.Id, calendar.InstitutionId, calendar.Title, calendar.AcademicSession, calendar.ImageUrl, calendar.PublishedAt));
     }
 
     private async Task<AppUser?> GetCurrentUser(CancellationToken cancellationToken)
