@@ -108,6 +108,8 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
     {
         modelBuilder.Entity<AppUser>(entity =>
         {
+            entity.Property(x => x.GoogleSubject).HasMaxLength(255);
+            entity.HasIndex(x => x.GoogleSubject).IsUnique().HasFilter("\"GoogleSubject\" IS NOT NULL");
             entity.Property(x => x.Email).HasMaxLength(320);
             entity.Property(x => x.FirstName).HasMaxLength(100);
             entity.Property(x => x.LastName).HasMaxLength(100);
