@@ -20,15 +20,15 @@ Cloud acceptance criteria are external tasks, not automatically completed by the
 
 Suggested commit: `feat: add publishing feeds media and moderation workflows`
 
-Status: In progress. The content-management and calendar foundations are implemented; provider-backed uploads and advertisement workflows remain.
+Status: MVP implementation complete, with provider credentials and final release verification remaining.
 
 - Implemented: draft, pending-approval, published, rejected and archived status transitions with role-controlled moderation.
 - Implemented: content editing, school-scoped archive/delete, audience validation and feed text search with existing type, urgency, academic-scope and pagination filters.
 - Implemented: academic calendar replacement with automatic deactivation of the previous official calendar.
-- Configured: separate private Backblaze B2 buckets and application keys for staging and production; environment templates and deployment documentation are updated.
-- Remaining: Backblaze upload adapter, signed/authorized media URLs, JPEG/PNG/WebP/PDF validation, size limits, safe names and image compression.
-- Remaining: calendar image upload limits, complete event/advertisement/media DTOs, advertisement moderation and payment confirmation.
-- Remaining: contract and endpoint tests for the new Stage 2 operations.
+- Implemented: separate private Backblaze B2 storage configuration, server-side upload adapter, signed downloads, safe object names, MIME validation and size limits.
+- Implemented: event, advertisement and media DTOs, school-scoped moderation, and publication status transitions.
+- Implemented: optional Paystack transaction initialization and verification endpoints. Paystack keys remain deployment secrets; payment is outside the MVP unless product scope changes.
+- Remaining: expanded contract and endpoint tests for the new Stage 2 operations and provider-side release verification.
 
 ## 3. Notifications, telemetry and release verification
 
