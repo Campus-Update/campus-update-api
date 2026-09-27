@@ -1,4 +1,5 @@
 using System.Text;
+using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using CampusUpdate.Api.Authentication;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.EntityFrameworkCore;
+using CampusUpdate.Api.Payments;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -80,6 +82,13 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
 builder.Services.AddAuthorization();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
+builder.Services.AddOptions<PaystackOptions>().Bind(builder.Configuration.GetSection(PaystackOptions.SectionName));
+builder.Services.AddHttpClient<PaystackClient>((sp, client) =>
+{
+    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PaystackOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.SecretKey);
+});
 
 var app = builder.Build();
 
