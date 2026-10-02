@@ -84,6 +84,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddOptions<GoogleOptions>().Bind(builder.Configuration.GetSection(GoogleOptions.SectionName));
+builder.Services.AddOptions<EmailVerificationOptions>().Bind(builder.Configuration.GetSection(EmailVerificationOptions.SectionName));
 builder.Services.AddOptions<PaystackOptions>().Bind(builder.Configuration.GetSection(PaystackOptions.SectionName));
 builder.Services.AddHttpClient<PaystackClient>((sp, client) =>
 {

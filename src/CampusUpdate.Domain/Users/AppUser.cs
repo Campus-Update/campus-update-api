@@ -21,6 +21,10 @@ public sealed class AppUser : Entity
     public UserRole Role { get; set; }
     public string? MatriculationOrStaffNumber { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool EmailVerified { get; set; }
+    public string? EmailVerificationCodeHash { get; set; }
+    public DateTimeOffset? EmailVerificationExpiresAt { get; set; }
+    public int EmailVerificationAttempts { get; set; }
     public Guid InstitutionId { get; set; }
     public Institution Institution { get; set; } = null!;
     public Guid? FacultyId { get; set; }
