@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 namespace CampusUpdate.Api.Controllers;
 [ApiController, Route("api/v1/auth/verification")]
-public sealed class VerificationController(CampusUpdateDbContext db, IOptions<EmailVerificationOptions> options, ILogger<VerificationController> logger) : ControllerBase
+public sealed class VerificationController(CampusUpdateDbContext db, IOptions<EmailVerificationOptions> options, ILogger<VerificationController> logger, ResendEmailSender emailSender) : ControllerBase
 {
     [HttpPost("request")]
     public async Task<IActionResult> RequestCode(RequestVerificationRequest request, CancellationToken ct)
@@ -21,7 +21,8 @@ public sealed class VerificationController(CampusUpdateDbContext db, IOptions<Em
         user.EmailVerificationExpiresAt = DateTimeOffset.UtcNow.AddMinutes(options.Value.CodeLifetimeMinutes);
         user.EmailVerificationAttempts = 0;
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Email verification code generated for {Email}: {Code}", user.Email, code);
+        try { await emailSender.SendVerificationAsync(user.Email, code, ct); }
+        catch (InvalidOperationException ex) { logger.LogWarning(ex, "Email delivery unavailable."); return StatusCode(503, new ProblemDetails { Title = "Email delivery is not configured." }); }
         return Ok(new { message = "If the account exists, a verification code has been sent." });
     }
 

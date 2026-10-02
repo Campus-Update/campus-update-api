@@ -85,6 +85,12 @@ builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddOptions<GoogleOptions>().Bind(builder.Configuration.GetSection(GoogleOptions.SectionName));
 builder.Services.AddOptions<EmailVerificationOptions>().Bind(builder.Configuration.GetSection(EmailVerificationOptions.SectionName));
+builder.Services.AddOptions<EmailOptions>().Bind(builder.Configuration.GetSection(EmailOptions.SectionName));
+builder.Services.AddHttpClient<ResendEmailSender>(client =>
+{
+    client.BaseAddress = new Uri("https://api.resend.com");
+    client.DefaultRequestHeaders.Add("Authorization", "Bearer " + builder.Configuration["Email:ApiKey"]);
+});
 builder.Services.AddOptions<PaystackOptions>().Bind(builder.Configuration.GetSection(PaystackOptions.SectionName));
 builder.Services.AddHttpClient<PaystackClient>((sp, client) =>
 {
