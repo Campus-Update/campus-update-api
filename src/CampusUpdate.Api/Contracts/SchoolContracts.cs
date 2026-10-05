@@ -21,3 +21,11 @@ public sealed record AcademicCalendarResponse(
     string AcademicSession,
     string ImageUrl,
     DateTimeOffset PublishedAt);
+
+public sealed class CalendarUploadRequest
+{
+    public Guid InstitutionId { get; set; }
+    [Required, MaxLength(250)] public string Title { get; set; } = "";
+    [Required, MaxLength(50)] public string AcademicSession { get; set; } = "";
+    [Required] public Microsoft.AspNetCore.Http.IFormFile File { get; set; } = null!;
+}

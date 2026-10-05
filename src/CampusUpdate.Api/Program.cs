@@ -13,8 +13,15 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.EntityFrameworkCore;
 using CampusUpdate.Api.Payments;
 using CampusUpdate.Api.Auth;
+using CampusUpdate.Api.Notifications;
 
 var builder = WebApplication.CreateBuilder(args);
+ImageMagick.ResourceLimits.Memory = 256UL * 1024 * 1024;
+ImageMagick.ResourceLimits.Disk = 512UL * 1024 * 1024;
+ImageMagick.ResourceLimits.Width = 20000;
+ImageMagick.ResourceLimits.Height = 20000;
+ImageMagick.ResourceLimits.ListLength = 16;
+ImageMagick.ResourceLimits.Thread = 2;
 
 // Container platforms supply the port their ingress forwards traffic to.
 if (builder.Configuration["PORT"] is { Length: > 0 } port)
@@ -86,6 +93,10 @@ builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddOptions<GoogleOptions>().Bind(builder.Configuration.GetSection(GoogleOptions.SectionName));
 builder.Services.AddOptions<EmailVerificationOptions>().Bind(builder.Configuration.GetSection(EmailVerificationOptions.SectionName));
 builder.Services.AddOptions<EmailOptions>().Bind(builder.Configuration.GetSection(EmailOptions.SectionName));
+builder.Services.AddOptions<FcmOptions>().Bind(builder.Configuration.GetSection(FcmOptions.SectionName));
+builder.Services.AddSingleton<FirebasePushSender>();
+builder.Services.AddScoped<NotificationDispatcher>();
+builder.Services.AddScoped<UsageAggregator>();
 builder.Services.AddHttpClient<ResendEmailSender>(client =>
 {
     client.BaseAddress = new Uri("https://api.resend.com");
@@ -100,6 +111,17 @@ builder.Services.AddHttpClient<PaystackClient>((sp, client) =>
 });
 
 var app = builder.Build();
+if (app.Environment.IsDevelopment())
+{
+    app.MapGet("/api/v1/mock/calendar.png", () =>
+    {
+        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.White, 800, 500);
+        new ImageMagick.Drawing.Drawables().FillColor(ImageMagick.MagickColors.Navy).Rectangle(30, 30, 770, 100)
+            .FillColor(ImageMagick.MagickColors.LightBlue).Rectangle(30, 130, 770, 210)
+            .Rectangle(30, 240, 770, 320).Rectangle(30, 350, 770, 430).Draw(image);
+        return Results.File(image.ToByteArray(ImageMagick.MagickFormat.Png), "image/png");
+    });
+}
 
 if (args.Contains("--seed-development"))
 {

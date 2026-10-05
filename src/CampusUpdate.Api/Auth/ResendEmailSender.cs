@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
 namespace CampusUpdate.Api.Auth;
+
 public sealed class ResendEmailSender(HttpClient client, IOptions<EmailOptions> options)
 {
     private readonly EmailOptions settings = options.Value;

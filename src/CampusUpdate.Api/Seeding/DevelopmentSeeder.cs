@@ -26,7 +26,7 @@ public static class DevelopmentSeeder
         {
             Name = "Computer Science",
             Code = "BSC-CS",
-            Levels = [level, new AcademicLevel { Name = "200 Level", SortOrder = 200 }]
+            Levels = [level, new AcademicLevel { Name = "200 Level", SortOrder = 200 }, new AcademicLevel { Name = "300 Level", SortOrder = 300 }, new AcademicLevel { Name = "400 Level", SortOrder = 400 }]
         };
         var department = new Department { Name = "Computer Science", Code = "CSC", Programmes = [programme] };
         var faculty = new Faculty { Name = "Computing", Code = "COMP", Departments = [department] };
@@ -77,6 +77,7 @@ public static class DevelopmentSeeder
                 Title = title,
                 Body = "Synthetic development content; not an actual school announcement.",
                 Type = type,
+                Category = type == ContentType.News ? "Campus" : null,
                 Status = ContentStatus.Published,
                 PublishedAt = publishedAt,
                 SourceType = source,
@@ -94,7 +95,7 @@ public static class DevelopmentSeeder
             Institution = institution,
             Title = "Demo academic calendar",
             AcademicSession = "2026/2027",
-            ImageUrl = "https://example.com/demo-calendar.png",
+            ImageUrl = "/api/v1/mock/calendar.png",
             PublishedAt = publishedAt
         });
         db.AuditLogs.Add(new AuditLog

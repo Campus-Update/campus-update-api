@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using CampusUpdate.Domain.Notifications;
 
 namespace CampusUpdate.Api.Controllers;
 
@@ -52,6 +53,7 @@ public sealed class GoogleAuthController(
             if (!user.IsActive) return Unauthorized(new ProblemDetails { Title = "This account is inactive." });
         }
         var pair = tokenService.Create(user);
+        db.UserActivities.Add(new UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = isNew ? "registration" : "login", OccurredAt = DateTimeOffset.UtcNow });
         user.RefreshTokenHash = tokenService.HashRefreshToken(pair.RefreshToken);
         user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(jwtOptions.Value.RefreshTokenDays);
         await db.SaveChangesAsync(cancellationToken);

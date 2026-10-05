@@ -38,6 +38,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<CampusUpdateDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<CampusUpdateDbContext>>();
             services.AddDbContext<CampusUpdateDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+            services.RemoveAll<CampusUpdate.Infrastructure.Media.IMediaStorage>();
+            services.AddSingleton<CampusUpdate.Infrastructure.Media.IMediaStorage, TestMediaStorage>();
         });
     }
 
@@ -123,4 +125,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         db.SaveChanges();
         return (user.Id, scope.ServiceProvider.GetRequiredService<ITokenService>().Create(user).AccessToken);
     }
+}
+
+public sealed class TestMediaStorage : CampusUpdate.Infrastructure.Media.IMediaStorage
+{
+    public Dictionary<string, byte[]> Files { get; } = [];
+    public async Task<CampusUpdate.Infrastructure.Media.StoredMedia> UploadAsync(Stream content, string objectKey, string contentType, long sizeBytes, CancellationToken ct)
+    {
+        using var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer, ct);
+        Files[objectKey] = buffer.ToArray();
+        return new(objectKey, contentType, sizeBytes);
+    }
+    public Task<string> CreateDownloadUrlAsync(string objectKey, TimeSpan lifetime, CancellationToken ct) => Task.FromResult($"https://media.example.test/{objectKey}?signed=test");
 }

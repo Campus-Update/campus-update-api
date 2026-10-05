@@ -2,6 +2,7 @@ using CampusUpdate.Domain.Common;
 using CampusUpdate.Domain.Content;
 using CampusUpdate.Domain.Schools;
 using CampusUpdate.Domain.Users;
+using CampusUpdate.Domain.Notifications;
 using Microsoft.EntityFrameworkCore;
 
 namespace CampusUpdate.Infrastructure.Persistence;
@@ -21,6 +22,12 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
     public DbSet<ContentAudience> ContentAudiences => Set<ContentAudience>();
     public DbSet<ContentAttachment> ContentAttachments => Set<ContentAttachment>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<DeviceInstallation> DeviceInstallations => Set<DeviceInstallation>();
+    public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
+    public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
+    public DbSet<ContentView> ContentViews => Set<ContentView>();
+    public DbSet<DailyUsageCounter> DailyUsageCounters => Set<DailyUsageCounter>();
+    public DbSet<UserActivity> UserActivities => Set<UserActivity>();
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
@@ -47,12 +54,23 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
         ConfigureSchools(modelBuilder);
         ConfigureUsers(modelBuilder);
         ConfigureContent(modelBuilder);
+        ConfigureNotifications(modelBuilder);
         modelBuilder.Entity<AuditLog>(entity =>
         {
             entity.Property(x => x.Action).HasMaxLength(100);
             entity.Property(x => x.Details).HasMaxLength(2000);
             entity.HasIndex(x => new { x.InstitutionId, x.CreatedAt });
         });
+    }
+
+    private static void ConfigureNotifications(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DeviceInstallation>(e => { e.Property(x => x.Token).HasMaxLength(4096); e.HasIndex(x => x.Token).IsUnique(); e.HasIndex(x => new { x.UserId, x.IsActive }); });
+        modelBuilder.Entity<UserNotification>(e => { e.Property(x => x.Title).HasMaxLength(250); e.Property(x => x.Body).HasMaxLength(1000); e.HasIndex(x => new { x.UserId, x.CreatedAt }); e.HasIndex(x => new { x.DeliveryStatus, x.LastAttemptAt }); e.HasIndex(x => new { x.UserId, x.ContentItemId }).IsUnique().HasFilter("\"ContentItemId\" IS NOT NULL"); });
+        modelBuilder.Entity<NotificationDelivery>(e => { e.HasIndex(x => new { x.NotificationId, x.DeviceInstallationId }).IsUnique(); e.HasIndex(x => new { x.Status, x.LastAttemptAt }); });
+        modelBuilder.Entity<ContentView>(e => { e.HasIndex(x => new { x.UserId, x.ContentItemId }).IsUnique(); e.HasIndex(x => new { x.InstitutionId, x.ContentItemId }); });
+        modelBuilder.Entity<DailyUsageCounter>().HasIndex(x => new { x.InstitutionId, x.Day }).IsUnique();
+        modelBuilder.Entity<UserActivity>(e => { e.Property(x => x.ActivityType).HasMaxLength(50); e.HasIndex(x => new { x.InstitutionId, x.OccurredAt }); });
     }
 
     private static void ConfigureSchools(ModelBuilder modelBuilder)

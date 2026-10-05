@@ -1,4 +1,5 @@
 namespace CampusUpdate.Api.Auth;
+
 public sealed class EmailVerificationOptions
 {
     public const string SectionName = "EmailVerification";

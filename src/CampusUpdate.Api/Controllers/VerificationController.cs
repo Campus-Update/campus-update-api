@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace CampusUpdate.Api.Controllers;
+
 [ApiController, Route("api/v1/auth/verification")]
 public sealed class VerificationController(CampusUpdateDbContext db, IOptions<EmailVerificationOptions> options, ILogger<VerificationController> logger, ResendEmailSender emailSender) : ControllerBase
 {

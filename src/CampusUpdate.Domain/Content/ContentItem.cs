@@ -4,6 +4,8 @@ using CampusUpdate.Domain.Users;
 
 namespace CampusUpdate.Domain.Content;
 
+public enum TargetAudience { All, Students, Staff }
+
 public enum ContentType { News, Announcement, Event, Advertisement }
 public enum ContentStatus { Draft, PendingApproval, Published, Rejected, Archived }
 public enum UrgencyLevel { Normal, Important, Urgent }
@@ -14,6 +16,7 @@ public sealed class ContentItem : Entity
     public required string Title { get; set; }
     public required string Body { get; set; }
     public string? Summary { get; set; }
+    public string? Category { get; set; }
     public string? CoverImageUrl { get; set; }
     public ContentType Type { get; set; }
     public ContentStatus Status { get; set; } = ContentStatus.Draft;
@@ -21,6 +24,7 @@ public sealed class ContentItem : Entity
     public SourceType SourceType { get; set; } = SourceType.Official;
     public required string SourceName { get; set; }
     public DateTimeOffset? PublishedAt { get; set; }
+    public DateTimeOffset? NotificationsEnqueuedAt { get; set; }
     public DateTimeOffset? EventStartsAt { get; set; }
     public DateTimeOffset? EventEndsAt { get; set; }
     public string? EventLocation { get; set; }
@@ -35,6 +39,7 @@ public sealed class ContentItem : Entity
 
 public sealed class ContentAudience : Entity
 {
+    public TargetAudience TargetAudience { get; set; }
     public Guid ContentItemId { get; set; }
     public ContentItem ContentItem { get; set; } = null!;
     public Guid InstitutionId { get; set; }

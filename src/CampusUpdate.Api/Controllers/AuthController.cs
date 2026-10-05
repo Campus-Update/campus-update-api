@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using CampusUpdate.Domain.Notifications;
 
 namespace CampusUpdate.Api.Controllers;
 
@@ -49,6 +50,7 @@ public sealed class AuthController(
         user.RefreshTokenHash = tokenService.HashRefreshToken(pair.RefreshToken);
         user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(jwtOptions.Value.RefreshTokenDays);
         db.Users.Add(user);
+        db.UserActivities.Add(new UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "registration", OccurredAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(cancellationToken);
         return CreatedAtAction(nameof(Register), new AuthResponse(user.Id, pair.AccessToken, pair.RefreshToken, pair.ExpiresAt));
     }
@@ -63,6 +65,7 @@ public sealed class AuthController(
             return Unauthorized(new ProblemDetails { Title = "Invalid email or password." });
 
         var pair = tokenService.Create(user);
+        db.UserActivities.Add(new UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "login", OccurredAt = DateTimeOffset.UtcNow });
         user.RefreshTokenHash = tokenService.HashRefreshToken(pair.RefreshToken);
         user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(jwtOptions.Value.RefreshTokenDays);
         await db.SaveChangesAsync(cancellationToken);
@@ -82,6 +85,7 @@ public sealed class AuthController(
         var pair = tokenService.Create(user);
         user.RefreshTokenHash = tokenService.HashRefreshToken(pair.RefreshToken);
         user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(jwtOptions.Value.RefreshTokenDays);
+        db.UserActivities.Add(new UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "session_refresh", OccurredAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(cancellationToken);
         return Ok(new AuthResponse(user.Id, pair.AccessToken, pair.RefreshToken, pair.ExpiresAt));
     }
