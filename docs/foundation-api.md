@@ -4,7 +4,7 @@ All HTTP routes use `/api/v1`. JWT role values are `Student`, `Staff`, `SchoolAd
 
 ## Notifications and analytics
 
-Authenticated mobile clients register or deactivate FCM devices with `POST /devices` and `DELETE /devices/{id}`. The notification inbox is `GET /notifications`; clients use `PATCH /notifications/{id}/read` or `POST /notifications/{id}/ack` with `{"state":"delivered"}` or `{"state":"opened"}`. Published content creates audience-targeted notification records and attempts FCM delivery when configured. SuperAdmins can read `GET /admin/analytics?days=30` and manually retry failed/pending deliveries with `POST /admin/notifications/retry`. Vercel invokes `/api/v1/internal/notifications/retry` every five minutes; configure `CRON_SECRET` in Vercel for the scheduled request.
+Authenticated mobile clients register or deactivate FCM devices with `POST /devices` and `DELETE /devices/{id}`. The notification inbox is `GET /notifications`; clients use `PATCH /notifications/{id}/read` or `POST /notifications/{id}/ack` with `{"state":"delivered"}` or `{"state":"opened"}`. Published content creates audience-targeted notification records and attempts FCM delivery when configured. SuperAdmins can read `GET /admin/analytics?days=30` and manually retry failed/pending deliveries with `POST /admin/notifications/retry`. Vercel invokes `/api/v1/internal/notifications/retry` daily at approximately 03:00 UTC (Hobby-compatible); configure `CRON_SECRET` in Vercel for the scheduled request.
 
 | Method and route | Access | Request / result |
 | --- | --- | --- |
@@ -25,3 +25,5 @@ Content creation produces drafts. Publishing, media uploads, advertisement moder
 Apply the `FoundationAccessControl` migration before running this version. It adds nullable institution state, an all-campus preference defaulting to false for existing users, and the audit-log table. Existing institutions and personalized feeds retain their previous behavior.
 
 HTTP regression tests exercise real JWT authentication with an isolated in-memory database. CI additionally applies migrations to PostgreSQL 17, runs initial administrator bootstrap and checks its repeat refusal, verifies repeatable development seeding, and confirms that staging rejects demo seeding. These checks do not provision or validate deployed cloud environments.
+
+Staging uses a daily Vercel Cron schedule on the Hobby plan. Published content still sends immediately; scheduled retries and usage-counter aggregation may lag by up to a day. Analytics DAU and event totals query durable records directly.

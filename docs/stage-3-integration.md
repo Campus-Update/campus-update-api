@@ -38,8 +38,10 @@ Auth and feed operations save durable activity events asynchronously. The schedu
 
 ## Deployment and verification
 
-Apply the EF migrations before deployment. Set `Fcm__ServiceAccountJson` and `CRON_SECRET` in each deployment. The existing authenticated scheduler `/api/v1/internal/notifications/retry` also aggregates usage events every five minutes. Background aggregation uses database transactions and resumes from saved events after interruption.
+Apply the EF migrations before deployment. Set `Fcm__ServiceAccountJson` and `CRON_SECRET` in each deployment. The existing authenticated scheduler `/api/v1/internal/notifications/retry` also aggregates usage events daily at approximately 03:00 UTC (Hobby-compatible). Background aggregation uses database transactions and resumes from saved events after interruption.
 
 Development mock data is created using the Development-only `--seed-development` command with a `Seed__Password` of at least 12 characters. It includes a synthetic Computing faculty, Computer Science department/programme, 100?400 levels, role-specific accounts, sample news, an urgent announcement, an event, a sponsored advertisement and a calendar record. The development calendar uses a generated PNG served by the Development-only `/api/v1/mock/calendar.png` endpoint; production and staging do not expose this mock route. Upload a real calendar image to test bucket storage. Re-running the seed does not duplicate the fixture. The sample source labels are Official School, CAMPUS UPDATE and Sponsored.
 
 Build and HTTP regression checks validate the local implementation. Live Firebase delivery, Backblaze uploads and the scheduler must still be verified in the deployed environments.
+
+Staging uses a daily Vercel Cron schedule on the Hobby plan. Published content still sends immediately; scheduled retries and usage-counter aggregation may lag by up to a day. Analytics DAU and event totals query durable records directly.

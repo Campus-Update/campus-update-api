@@ -11,6 +11,6 @@
     { "source": "/(.*)", "destination": { "service": "api" } }
   ],
   "crons": [
-    { "path": "/api/v1/internal/notifications/retry", "schedule": "*/5 * * * *" }
+    { "path": "/api/v1/internal/notifications/retry", "schedule": "0 3 * * *" }
   ]
 }

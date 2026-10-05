@@ -48,3 +48,5 @@ The workflow is a CI quality gate (format, build, HTTP regression tests, migrati
 ### Acceptance-criteria follow-up
 
 Added student/staff audience selection; secured student/staff media downloads; calendar multipart upload/compression/current alias/empty state; feed activity tracking; DAU/registered-user/active-post/notification receipt metrics; durable scheduled usage-counter aggregation; and race-safe unique views. See [Stage 3 integration](stage-3-integration.md) for client payloads and operational prerequisites. Backend source changes are local until committed and deployed; live cloud verification remains outstanding.
+
+Staging uses a daily Vercel Cron schedule on the Hobby plan. Published content still sends immediately; scheduled retries and usage-counter aggregation may lag by up to a day. Analytics DAU and event totals query durable records directly.
