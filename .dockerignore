@@ -10,3 +10,4 @@ TestResults
 coverage
 *.user
 *.suo
+.secrets/
