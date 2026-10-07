@@ -6,12 +6,13 @@ using CampusUpdate.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using CampusUpdate.Api.Notifications;
 
 namespace CampusUpdate.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/content")]
-public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
+public sealed class ContentController(CampusUpdateDbContext db, NotificationDispatcher notifications) : ControllerBase
 {
     [Authorize]
     [HttpGet]
@@ -23,6 +24,7 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
         [FromQuery] Guid? departmentId,
         [FromQuery] Guid? academicLevelId,
         [FromQuery] string? search,
+        [FromQuery] string? category = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
@@ -50,10 +52,12 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
              (x.Type == ContentType.Advertisement && user.FeedPreference.AdvertisementsEnabled)) &&
             x.Audiences.Any(a =>
                 a.InstitutionId == user.InstitutionId &&
+                (a.TargetAudience == TargetAudience.All || (a.TargetAudience == TargetAudience.Students && user.Role == UserRole.Student) || (a.TargetAudience == TargetAudience.Staff && user.Role == UserRole.Staff)) &&
                 (user.FeedPreference.AllCampusFeed || ((a.FacultyId == null || a.FacultyId == user.FacultyId) &&
                 (a.DepartmentId == null || a.DepartmentId == user.DepartmentId) &&
                 (a.ProgrammeId == null || a.ProgrammeId == user.ProgrammeId) &&
                 (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))));
+        if (!string.IsNullOrWhiteSpace(category)) query = query.Where(x => x.Category == category.Trim());
         if (type.HasValue)
             query = query.Where(x => x.Type == type.Value);
         if (urgency.HasValue)
@@ -70,8 +74,10 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
             .ThenByDescending(x => x.PublishedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt))
+            .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt, x.Category))
             .ToListAsync(cancellationToken);
+        db.UserActivities.Add(new CampusUpdate.Domain.Notifications.UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "feed_fetch", OccurredAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync(cancellationToken);
         return Ok(items);
     }
 
@@ -89,7 +95,7 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
         foreach (var audience in request.Audiences)
             if (!await AudienceIsValid(audience, cancellationToken)) return BadRequest(new ProblemDetails { Title = "The selected audience hierarchy is invalid." });
         if (request.EventEndsAt < request.EventStartsAt) return BadRequest(new ProblemDetails { Title = "EventEndsAt cannot be before EventStartsAt." });
-        item.Title = request.Title.Trim(); item.Body = request.Body.Trim(); item.Summary = request.Summary?.Trim();
+        item.Title = request.Title.Trim(); item.Body = request.Body.Trim(); item.Summary = request.Summary?.Trim(); item.Category = request.Category?.Trim();
         item.Urgency = request.Urgency; item.SourceName = request.SourceName.Trim(); item.EventStartsAt = request.EventStartsAt;
         item.EventEndsAt = request.EventEndsAt; item.EventLocation = request.EventLocation?.Trim(); item.RegistrationUrl = request.RegistrationUrl;
         item.SponsorName = request.SponsorName?.Trim(); item.TargetUrl = request.TargetUrl;
@@ -118,6 +124,8 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
         if (!allowed) return BadRequest(new ProblemDetails { Title = "Invalid content status transition." });
         item.Status = request.Status; item.PublishedAt = request.Status == ContentStatus.Published ? DateTimeOffset.UtcNow : item.PublishedAt;
         await db.SaveChangesAsync(cancellationToken);
+        if (request.Status == ContentStatus.Published)
+            await notifications.QueuePublishedContentAsync(item, cancellationToken);
         return Ok(ToResponse(item));
     }
 
@@ -163,6 +171,7 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
             Title = request.Title.Trim(),
             Body = request.Body.Trim(),
             Summary = request.Summary?.Trim(),
+            Category = request.Category?.Trim(),
             Type = request.Type,
             Urgency = request.Urgency,
             SourceType = request.SourceType,
@@ -176,6 +185,7 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
             AuthorId = authorId,
             Audiences = request.Audiences.Select(a => new ContentAudience
             {
+                TargetAudience = a.TargetAudience,
                 InstitutionId = a.InstitutionId,
                 FacultyId = a.FacultyId,
                 DepartmentId = a.DepartmentId,
@@ -185,7 +195,7 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
         };
         db.ContentItems.Add(item);
         await db.SaveChangesAsync(cancellationToken);
-        var response = new ContentResponse(item.Id, item.Title, item.Body, item.Type, item.Status, item.Urgency, item.SourceType, item.SourceName, item.PublishedAt);
+        var response = new ContentResponse(item.Id, item.Title, item.Body, item.Type, item.Status, item.Urgency, item.SourceType, item.SourceName, item.PublishedAt, item.Category);
         return CreatedAtAction(nameof(GetById), new { id = item.Id }, response);
     }
 
@@ -205,17 +215,34 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
                 (user.Role == UserRole.SchoolAdmin && x.Audiences.Any(a => a.InstitutionId == user.InstitutionId)) ||
                 (x.Status == ContentStatus.Published && x.Audiences.Any(a =>
                     a.InstitutionId == user.InstitutionId &&
+                (a.TargetAudience == TargetAudience.All || (a.TargetAudience == TargetAudience.Students && user.Role == UserRole.Student) || (a.TargetAudience == TargetAudience.Staff && user.Role == UserRole.Staff)) &&
                     (user.FeedPreference.AllCampusFeed || ((a.FacultyId == null || a.FacultyId == user.FacultyId) &&
                     (a.DepartmentId == null || a.DepartmentId == user.DepartmentId) &&
                     (a.ProgrammeId == null || a.ProgrammeId == user.ProgrammeId) &&
                     (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))))))
-            .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt))
+            .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt, x.Category))
             .SingleOrDefaultAsync(cancellationToken);
-        return item is null ? NotFound() : Ok(item);
+        if (item is null) return NotFound();
+        if (user.Role is UserRole.Student or UserRole.Staff)
+        {
+            var viewId = Guid.NewGuid();
+            var viewedAt = DateTimeOffset.UtcNow;
+            if (db.Database.IsNpgsql())
+            {
+                await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"ContentViews\" (\"Id\", \"CreatedAt\", \"UpdatedAt\", \"UserId\", \"ContentItemId\", \"InstitutionId\", \"FirstViewedAt\") VALUES ({viewId}, {viewedAt}, {viewedAt}, {user.Id}, {item.Id}, {user.InstitutionId}, {viewedAt}) ON CONFLICT (\"UserId\", \"ContentItemId\") DO NOTHING", cancellationToken);
+            }
+            else if (!await db.ContentViews.AnyAsync(v => v.UserId == user.Id && v.ContentItemId == item.Id, cancellationToken))
+            {
+                db.ContentViews.Add(new CampusUpdate.Domain.Notifications.ContentView { UserId = user.Id, ContentItemId = item.Id, InstitutionId = user.InstitutionId, FirstViewedAt = viewedAt });
+                await db.SaveChangesAsync(cancellationToken);
+            }
+        }
+        return Ok(item);
     }
 
     private async Task<bool> AudienceIsValid(AudienceRequest audience, CancellationToken cancellationToken)
     {
+        if (!Enum.IsDefined(audience.TargetAudience)) return false;
         if (!await db.Institutions.AnyAsync(x => x.Id == audience.InstitutionId && x.IsActive, cancellationToken))
             return false;
         if (audience.FacultyId is not null && !await db.Faculties.AnyAsync(
@@ -237,6 +264,6 @@ public sealed class ContentController(CampusUpdateDbContext db) : ControllerBase
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
             ? await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.IsActive, cancellationToken) : null;
 
-    private static ContentAudience ToAudience(AudienceRequest a) => new() { InstitutionId = a.InstitutionId, FacultyId = a.FacultyId, DepartmentId = a.DepartmentId, ProgrammeId = a.ProgrammeId, AcademicLevelId = a.AcademicLevelId };
-    private static ContentResponse ToResponse(ContentItem x) => new(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt);
+    private static ContentAudience ToAudience(AudienceRequest a) => new() { TargetAudience = a.TargetAudience, InstitutionId = a.InstitutionId, FacultyId = a.FacultyId, DepartmentId = a.DepartmentId, ProgrammeId = a.ProgrammeId, AcademicLevelId = a.AcademicLevelId };
+    private static ContentResponse ToResponse(ContentItem x) => new(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt, x.Category);
 }

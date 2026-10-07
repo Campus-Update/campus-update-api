@@ -3,6 +3,7 @@ using System;
 using CampusUpdate.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CampusUpdate.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CampusUpdateDbContext))]
-    partial class CampusUpdateDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261005171613_AddNotificationDeliveryReceipts")]
+    partial class AddNotificationDeliveryReceipts
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -94,9 +97,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ProgrammeId")
                         .HasColumnType("uuid");
 
-                    b.Property<int>("TargetAudience")
-                        .HasColumnType("integer");
-
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -131,9 +131,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Category")
-                        .HasColumnType("text");
-
                     b.Property<string>("CoverImageUrl")
                         .HasColumnType("text");
 
@@ -147,9 +144,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset?>("EventStartsAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("NotificationsEnqueuedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("PublishedAt")
@@ -235,41 +229,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ContentViews");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.DailyUsageCounter", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("Day")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("FeedFetches")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("InstitutionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("Registrations")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("Sessions")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InstitutionId", "Day")
-                        .IsUnique();
-
-                    b.ToTable("DailyUsageCounters");
                 });
 
             modelBuilder.Entity("CampusUpdate.Domain.Notifications.DeviceInstallation", b =>
@@ -363,9 +322,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
-
-                    b.Property<bool>("Aggregated")
-                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

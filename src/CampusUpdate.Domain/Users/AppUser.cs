@@ -15,11 +15,16 @@ public sealed class AppUser : Entity
 {
     public required string Email { get; set; }
     public required string PasswordHash { get; set; }
+    public string? GoogleSubject { get; set; }
     public required string FirstName { get; set; }
     public required string LastName { get; set; }
     public UserRole Role { get; set; }
     public string? MatriculationOrStaffNumber { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool EmailVerified { get; set; }
+    public string? EmailVerificationCodeHash { get; set; }
+    public DateTimeOffset? EmailVerificationExpiresAt { get; set; }
+    public int EmailVerificationAttempts { get; set; }
     public Guid InstitutionId { get; set; }
     public Institution Institution { get; set; } = null!;
     public Guid? FacultyId { get; set; }

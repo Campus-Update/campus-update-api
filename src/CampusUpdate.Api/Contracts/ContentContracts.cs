@@ -8,7 +8,8 @@ public sealed record AudienceRequest(
     Guid? FacultyId,
     Guid? DepartmentId,
     Guid? ProgrammeId,
-    Guid? AcademicLevelId);
+    Guid? AcademicLevelId,
+    TargetAudience TargetAudience = TargetAudience.All);
 
 public sealed record CreateContentRequest(
     [Required, MaxLength(250)] string Title,
@@ -24,7 +25,8 @@ public sealed record CreateContentRequest(
     string? RegistrationUrl,
     string? SponsorName,
     string? TargetUrl,
-    IReadOnlyCollection<AudienceRequest> Audiences);
+    IReadOnlyCollection<AudienceRequest> Audiences,
+    [MaxLength(100)] string? Category = null);
 
 public sealed record UpdateContentRequest(
     [Required, MaxLength(250)] string Title,
@@ -38,7 +40,8 @@ public sealed record UpdateContentRequest(
     string? RegistrationUrl,
     string? SponsorName,
     string? TargetUrl,
-    IReadOnlyCollection<AudienceRequest> Audiences);
+    IReadOnlyCollection<AudienceRequest> Audiences,
+    [MaxLength(100)] string? Category = null);
 
 public sealed record ChangeContentStatusRequest(ContentStatus Status);
 
@@ -51,4 +54,5 @@ public sealed record ContentResponse(
     UrgencyLevel Urgency,
     SourceType SourceType,
     string SourceName,
-    DateTimeOffset? PublishedAt);
+    DateTimeOffset? PublishedAt,
+    string? Category = null);

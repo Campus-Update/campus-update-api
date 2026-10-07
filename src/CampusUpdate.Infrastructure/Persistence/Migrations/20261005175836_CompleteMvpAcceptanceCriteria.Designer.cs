@@ -3,6 +3,7 @@ using System;
 using CampusUpdate.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CampusUpdate.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CampusUpdateDbContext))]
-    partial class CampusUpdateDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261005175836_CompleteMvpAcceptanceCriteria")]
+    partial class CompleteMvpAcceptanceCriteria
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -129,9 +132,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Body")
                         .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Category")
                         .HasColumnType("text");
 
                     b.Property<string>("CoverImageUrl")

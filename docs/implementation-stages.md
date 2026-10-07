@@ -34,12 +34,19 @@ Status: MVP implementation complete, with provider credentials and final release
 
 Suggested commit: `feat: add targeted notifications analytics and release checks`
 
-Status: Planned.
+Status: Core implementation complete; deployment credentials, mobile integration, and external release checks remain.
 
-- FCM credentials and device registration, reliable publication triggers, segmented delivery and notification preference enforcement.
-- Notification history, read/unread status, device delivery/open acknowledgements.
-- Registration/session telemetry, unique content views, per-school aggregates and super-admin analytics.
-- Notification delivery retries/idempotency and metrics tests.
-- Final API specification, integration fixtures, deployment smoke tests and external environment/access verification.
+- Implemented: Firebase Cloud Messaging sender, device token registration/deactivation, preference-aware audience targeting when content is published, and persisted notification history.
+- Implemented: notification pagination, read state, per-device delivery/open acknowledgement, idempotent content notification records, durable publication recovery, and retry processing with attempt limits and delay.
+- Implemented: Vercel scheduled retry endpoint, protected with `CRON_SECRET`, plus SuperAdmin manual retry endpoint.
+- Implemented: unique content view tracking, registration/login/session refresh telemetry, and institution-level SuperAdmin analytics.
+- Remaining external setup: create Firebase service account credentials and set `Fcm__ServiceAccountJson` and `CRON_SECRET` in Vercel; the mobile app must register its FCM token and send open acknowledgements.
+- Remaining release work: apply pending EF migrations in staging and production, run end-to-end checks with real devices/provider credentials, and complete the deployment smoke checklist. Automated feature tests remain to be added.
 
 The workflow is a CI quality gate (format, build, HTTP regression tests, migration SQL generation, model/snapshot consistency, and PostgreSQL migration/bootstrap/seed checks), not an automatic production deployment. Stages 2 and 3 must extend its test coverage before release.
+
+### Acceptance-criteria follow-up
+
+Added student/staff audience selection; secured student/staff media downloads; calendar multipart upload/compression/current alias/empty state; feed activity tracking; DAU/registered-user/active-post/notification receipt metrics; durable scheduled usage-counter aggregation; and race-safe unique views. See [Stage 3 integration](stage-3-integration.md) for client payloads and operational prerequisites. Backend source changes are local until committed and deployed; live cloud verification remains outstanding.
+
+Staging uses a daily Vercel Cron schedule on the Hobby plan. Published content still sends immediately; scheduled retries and usage-counter aggregation may lag by up to a day. Analytics DAU and event totals query durable records directly.

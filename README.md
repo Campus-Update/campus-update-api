@@ -76,3 +76,5 @@ Apply the `FoundationAccessControl` migration before running this version. It ad
 
 HTTP regression tests exercise real JWT authentication with an isolated in-memory database. CI additionally applies migrations to PostgreSQL 17, runs initial administrator bootstrap and checks its repeat refusal, verifies repeatable development seeding, and confirms that staging rejects demo seeding. These checks do not provision or validate deployed cloud environments.
 
+
+See [Stage 3 client integration](docs/stage-3-integration.md) for calendar upload, audience selection, notification acknowledgements and analytics.

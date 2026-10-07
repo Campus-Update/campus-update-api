@@ -3,6 +3,7 @@ using System;
 using CampusUpdate.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CampusUpdate.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CampusUpdateDbContext))]
-    partial class CampusUpdateDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002183601_AddEmailVerification")]
+    partial class AddEmailVerification
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -94,9 +97,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ProgrammeId")
                         .HasColumnType("uuid");
 
-                    b.Property<int>("TargetAudience")
-                        .HasColumnType("integer");
-
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -131,9 +131,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Category")
-                        .HasColumnType("text");
-
                     b.Property<string>("CoverImageUrl")
                         .HasColumnType("text");
 
@@ -147,9 +144,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset?>("EventStartsAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("NotificationsEnqueuedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("PublishedAt")
@@ -201,258 +195,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                     b.HasIndex("Type", "Status");
 
                     b.ToTable("ContentItems");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.ContentView", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ContentItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("FirstViewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("InstitutionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InstitutionId", "ContentItemId");
-
-                    b.HasIndex("UserId", "ContentItemId")
-                        .IsUnique();
-
-                    b.ToTable("ContentViews");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.DailyUsageCounter", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("Day")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("FeedFetches")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("InstitutionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("Registrations")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("Sessions")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InstitutionId", "Day")
-                        .IsUnique();
-
-                    b.ToTable("DailyUsageCounters");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.DeviceInstallation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset>("LastSeenAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Platform")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Token")
-                        .IsRequired()
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Token")
-                        .IsUnique();
-
-                    b.HasIndex("UserId", "IsActive");
-
-                    b.ToTable("DeviceInstallations");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.NotificationDelivery", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Attempts")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("DeliveredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("DeviceInstallationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("LastAttemptAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("NotificationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DeviceInstallationId");
-
-                    b.HasIndex("NotificationId", "DeviceInstallationId")
-                        .IsUnique();
-
-                    b.HasIndex("Status", "LastAttemptAt");
-
-                    b.ToTable("NotificationDeliveries");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.UserActivity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActivityType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<bool>("Aggregated")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("InstitutionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("OccurredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InstitutionId", "OccurredAt");
-
-                    b.ToTable("UserActivities");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.UserNotification", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid?>("ContentItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DataJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset?>("DeliveredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("DeliveryAttempts")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DeliveryStatus")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("IsRead")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset?>("LastAttemptAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("OpenedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("ReadAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(250)
-                        .HasColumnType("character varying(250)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DeliveryStatus", "LastAttemptAt");
-
-                    b.HasIndex("UserId", "ContentItemId")
-                        .IsUnique()
-                        .HasFilter("\"ContentItemId\" IS NOT NULL");
-
-                    b.HasIndex("UserId", "CreatedAt");
-
-                    b.ToTable("UserNotifications");
                 });
 
             modelBuilder.Entity("CampusUpdate.Domain.Schools.AcademicCalendar", b =>
@@ -916,47 +658,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Author");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.DeviceInstallation", b =>
-                {
-                    b.HasOne("CampusUpdate.Domain.Users.AppUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.NotificationDelivery", b =>
-                {
-                    b.HasOne("CampusUpdate.Domain.Notifications.DeviceInstallation", "DeviceInstallation")
-                        .WithMany()
-                        .HasForeignKey("DeviceInstallationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CampusUpdate.Domain.Notifications.UserNotification", "Notification")
-                        .WithMany()
-                        .HasForeignKey("NotificationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("DeviceInstallation");
-
-                    b.Navigation("Notification");
-                });
-
-            modelBuilder.Entity("CampusUpdate.Domain.Notifications.UserNotification", b =>
-                {
-                    b.HasOne("CampusUpdate.Domain.Users.AppUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("CampusUpdate.Domain.Schools.AcademicCalendar", b =>

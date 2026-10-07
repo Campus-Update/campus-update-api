@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CampusUpdate.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+[Authorize]
 [Route("api/v1/media")]
 public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage storage) : ControllerBase
 {
@@ -20,6 +20,7 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
     private const long MaxImageBytes = 5 * 1024 * 1024;
     private const long MaxPdfBytes = 10 * 1024 * 1024;
 
+    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
     [HttpPost("content/{contentId:guid}")]
     [RequestSizeLimit(MaxPdfBytes)]
     public async Task<ActionResult<MediaUploadResponse>> Upload(Guid contentId, IFormFile file, CancellationToken cancellationToken)
@@ -54,7 +55,17 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
         var attachment = await db.ContentAttachments.AsNoTracking().Include(x => x.ContentItem).ThenInclude(x => x.Audiences).SingleOrDefaultAsync(x => x.Id == attachmentId, cancellationToken);
         if (user is null) return Unauthorized();
         if (attachment is null) return NotFound();
-        var visible = user.Role == UserRole.SuperAdmin || (attachment.ContentItem.Status == ContentStatus.Published && attachment.ContentItem.Audiences.Any(a => a.InstitutionId == user.InstitutionId && (user.FeedPreference.AllCampusFeed || (a.FacultyId == null || a.FacultyId == user.FacultyId))));
+        var visible = user.Role == UserRole.SuperAdmin ||
+            (user.Role == UserRole.SchoolAdmin && attachment.ContentItem.Audiences.Any(a => a.InstitutionId == user.InstitutionId)) ||
+            (attachment.ContentItem.Status == ContentStatus.Published && attachment.ContentItem.Audiences.Any(a =>
+                a.InstitutionId == user.InstitutionId &&
+                (a.TargetAudience == TargetAudience.All || (a.TargetAudience == TargetAudience.Students && user.Role == UserRole.Student) || (a.TargetAudience == TargetAudience.Staff && user.Role == UserRole.Staff)) &&
+                (user.FeedPreference.AllCampusFeed ||
+                 ((a.FacultyId == null || a.FacultyId == user.FacultyId) &&
+                  (a.DepartmentId == null || a.DepartmentId == user.DepartmentId) &&
+                  (a.ProgrammeId == null || a.ProgrammeId == user.ProgrammeId) &&
+                  (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))));
+
         if (!visible) return NotFound();
         var url = await storage.CreateDownloadUrlAsync(attachment.Url, TimeSpan.FromMinutes(15), cancellationToken);
         return Ok(new MediaUploadResponse(attachment.Id, attachment.FileName, attachment.ContentType, attachment.SizeBytes, url));

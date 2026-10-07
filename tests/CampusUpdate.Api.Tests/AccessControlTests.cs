@@ -252,6 +252,143 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/auth/register", request)).StatusCode);
     }
 
+    [Fact]
+    public async Task StudentAudienceRemainsRestrictedWithAllCampusEnabled()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var audience = await db.ContentAudiences.SingleAsync(a => a.ContentItemId == _factory.PublishedId);
+            audience.TargetAudience = TargetAudience.Students;
+            await db.SaveChangesAsync();
+        }
+        Login(UserRole.Staff);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync("/api/v1/auth/academic-settings", Settings(_factory.SchoolId))).StatusCode);
+        var feed = await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/feed", JsonOptions);
+        Assert.DoesNotContain(feed!, c => c.Id == _factory.PublishedId);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/v1/content/{_factory.PublishedId}")).StatusCode);
+        Login(UserRole.Student);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/content/{_factory.PublishedId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task FeedFetchRecordsActivityAndAnalyticsReportsDau()
+    {
+        var id = Login(UserRole.Student);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/api/v1/feed")).StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            Assert.True(await db.UserActivities.AnyAsync(a => a.UserId == id && a.ActivityType == "feed_fetch"));
+        }
+        Login(UserRole.SuperAdmin);
+        var response = await _client.GetAsync("/api/v1/admin/analytics");
+        response.EnsureSuccessStatusCode();
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(1, body.RootElement.GetProperty("totals").GetProperty("dau").GetInt32());
+        Assert.True(body.RootElement.GetProperty("totals").GetProperty("totalRegisteredUsers").GetInt32() >= 3);
+    }
+
+    [Fact]
+    public async Task NotificationAcknowledgementsAreOwnedAndIdempotent()
+    {
+        var id = Login(UserRole.Student);
+        var notification = new CampusUpdate.Domain.Notifications.UserNotification { UserId = id, Title = "Notice", Body = "Body" };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            db.UserNotifications.Add(notification);
+            await db.SaveChangesAsync();
+        }
+        var path = $"/api/v1/notifications/{notification.Id}/ack";
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.PostAsJsonAsync(path, new { state = "delivered" })).StatusCode);
+        DateTimeOffset? first;
+        using (var scope = _factory.Services.CreateScope())
+            first = (await scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>().UserNotifications.FindAsync(notification.Id))!.DeliveredAt;
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.PostAsJsonAsync(path, new { state = "delivered" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.PostAsJsonAsync(path, new { state = "opened" })).StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var saved = (await scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>().UserNotifications.FindAsync(notification.Id))!;
+            Assert.Equal(first, saved.DeliveredAt);
+            Assert.NotNull(saved.OpenedAt);
+            Assert.True(saved.IsRead);
+        }
+        Login(UserRole.Student);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.PostAsJsonAsync(path, new { state = "opened" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task CalendarCurrentHasDescriptiveEmptyState()
+    {
+        Login(UserRole.Student);
+        var response = await _client.GetAsync("/api/v1/calendar/current");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("No active academic calendar", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task CalendarUploadCompressesImageAndMakesItCurrent()
+    {
+        Login(UserRole.SchoolAdmin);
+        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.White, 100, 100);
+        var png = image.ToByteArray(ImageMagick.MagickFormat.Png);
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(_factory.SchoolId.ToString()), "institutionId");
+        form.Add(new StringContent("Academic calendar"), "title");
+        form.Add(new StringContent("2026/2027"), "academicSession");
+        var file = new ByteArrayContent(png);
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        form.Add(file, "file", "calendar.png");
+        var response = await _client.PostAsync("/api/v1/calendar/upload", form);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var storage = (TestMediaStorage)scope.ServiceProvider.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
+            var stored = Assert.Single(storage.Files);
+            Assert.EndsWith(".webp", stored.Key);
+            using var compressed = new ImageMagick.MagickImage(stored.Value);
+            Assert.Equal(ImageMagick.MagickFormat.WebP, compressed.Format);
+        }
+        Login(UserRole.Student);
+        var calendar = await _client.GetFromJsonAsync<AcademicCalendarResponse>("/api/v1/calendar/current");
+        Assert.Equal("Academic calendar", calendar!.Title);
+        Assert.Contains("signed=test", calendar.ImageUrl);
+    }
+
+    [Fact]
+    public async Task StudentsCanDownloadVisibleMediaButCannotUpload()
+    {
+        Login(UserRole.Student);
+        var attachment = new ContentAttachment { ContentItemId = _factory.PublishedId, FileName = "image.png", Url = "content/image.png", ContentType = "image/png", SizeBytes = 10 };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            db.ContentAttachments.Add(attachment);
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/media/{attachment.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsync($"/api/v1/media/content/{_factory.PublishedId}", new MultipartFormDataContent())).StatusCode);
+    }
+
+    [Fact]
+    public async Task NewsCategoryFilterReturnsOnlyMatchingCategory()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var item = await db.ContentItems.SingleAsync(c => c.Id == _factory.PublishedId);
+            item.Category = "Academics";
+            await db.SaveChangesAsync();
+        }
+        Login(UserRole.Student);
+        var feed = await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/feed?category=Academics", JsonOptions);
+        var itemResponse = Assert.Single(feed!);
+        Assert.Equal(_factory.PublishedId, itemResponse.Id);
+        Assert.Equal("Academics", itemResponse.Category);
+        Assert.Empty((await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/feed?category=Sports", JsonOptions))!);
+    }
+
     private Guid Login(UserRole role)
     {
         var (id, token) = _factory.AddUser(role);
