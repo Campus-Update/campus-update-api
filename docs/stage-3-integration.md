@@ -14,6 +14,8 @@ Example audience:
 
 SchoolAdmins can publish for their institution; SuperAdmins can publish across institutions. Publish a saved draft with `PATCH /api/v1/content/{id}/status` and `{"status":"Published"}`. Feed search uses `search`. Content create/update accepts an optional `category` string (up to 100 characters); feed `category` filters by that exact value. The independent `type` filter accepts `News`, `Announcement`, `Event`, or `Advertisement`.
 
+`GET /api/v1/content` currently returns only Published items, including for SuperAdmins; it is the same published feed query as `/api/v1/feed`. There is no SuperAdmin endpoint to list Draft or PendingApproval items for a moderation queue. A SuperAdmin can change a known pending item's status using `PATCH /api/v1/content/{id}/status`, but the moderation board needs a separate admin listing endpoint before it can discover pending items.
+
 ## Calendar images
 
 `POST /api/v1/calendar/upload` accepts multipart/form-data fields `institutionId`, `title`, `academicSession`, and `file`. Only SchoolAdmin/SuperAdmin accounts can upload. Images must be valid PNG, JPEG or WebP, at most 5 MB and 40 megapixels, with dimensions at most 20,000 pixels. The server compresses the image to WebP, removes image metadata, and replaces the institution's current calendar after successful storage.
