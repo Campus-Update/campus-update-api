@@ -27,6 +27,7 @@ Status: MVP implementation complete, with provider credentials and final release
 - Implemented: academic calendar replacement with automatic deactivation of the previous official calendar.
 - Implemented: separate private Backblaze B2 storage configuration, server-side upload adapter, signed downloads, safe object names, MIME validation and size limits.
 - Implemented: event, advertisement and media DTOs, school-scoped moderation, and publication status transitions.
+- Implemented: SuperAdmin paginated pending-approval content listing with institution, type, and text-search filters for the moderation board.
 - Implemented: optional Paystack transaction initialization and verification endpoints. Paystack keys remain deployment secrets; payment is outside the MVP unless product scope changes.
 - Remaining: expanded contract and endpoint tests for the new Stage 2 operations and provider-side release verification.
 

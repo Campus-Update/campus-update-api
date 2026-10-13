@@ -20,3 +20,41 @@ public sealed record CreateSchoolAdminRequest(
 
 public sealed record UpdateAdminUserRequest(UserRole Role, bool IsActive);
 public sealed record AdminUserResponse(Guid Id, string Email, UserRole Role, Guid InstitutionId, bool IsActive);
+
+public sealed record AdminContentAudienceResponse(
+    Guid InstitutionId,
+    Guid? FacultyId,
+    Guid? DepartmentId,
+    Guid? ProgrammeId,
+    Guid? AcademicLevelId,
+    CampusUpdate.Domain.Content.TargetAudience TargetAudience);
+
+public sealed record AdminModerationContentResponse(
+    Guid Id,
+    string Title,
+    string Body,
+    string? Summary,
+    string? Category,
+    string? ImageUrl,
+    CampusUpdate.Domain.Content.ContentType Type,
+    CampusUpdate.Domain.Content.ContentStatus Status,
+    CampusUpdate.Domain.Content.UrgencyLevel Urgency,
+    CampusUpdate.Domain.Content.SourceType SourceType,
+    string SourceName,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? EventStartsAt,
+    DateTimeOffset? EventEndsAt,
+    string? EventLocation,
+    string? RegistrationUrl,
+    string? SponsorName,
+    string? TargetUrl,
+    Guid AuthorId,
+    string AuthorEmail,
+    string AuthorName,
+    IReadOnlyCollection<AdminContentAudienceResponse> Audiences);
+
+public sealed record AdminModerationContentPageResponse(
+    int Page,
+    int PageSize,
+    int TotalCount,
+    IReadOnlyCollection<AdminModerationContentResponse> Items);

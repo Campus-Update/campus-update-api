@@ -20,6 +20,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public Guid OtherSchoolId { get; } = Guid.NewGuid();
     public Guid ForeignFacultyId { get; } = Guid.NewGuid();
     public Guid DraftId { get; } = Guid.NewGuid();
+    public Guid PendingApprovalId { get; } = Guid.NewGuid();
+    public Guid PendingEventId { get; } = Guid.NewGuid();
+    public Guid ForeignPendingApprovalId { get; } = Guid.NewGuid();
     public Guid PublishedId { get; } = Guid.NewGuid();
     public Guid TargetedId { get; } = Guid.NewGuid();
     public Guid ForeignPublishedId { get; } = Guid.NewGuid();
@@ -82,6 +85,42 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
                 Body = "Private",
                 SourceName = "School B",
                 Author = author,
+                Audiences = [new ContentAudience { Institution = other }]
+            },
+            new ContentItem
+            {
+                Id = PendingApprovalId,
+                Title = "Pending campus news",
+                Body = "Review this draft before publication.",
+                Summary = "Pending summary",
+                Category = "Academics",
+                CoverImageUrl = "https://media.example.test/pending.png",
+                SourceName = "School A",
+                Author = author,
+                Status = ContentStatus.PendingApproval,
+                Audiences = [new ContentAudience { Institution = school, TargetAudience = TargetAudience.Students }]
+            },
+            new ContentItem
+            {
+                Id = PendingEventId,
+                Title = "Pending campus event",
+                Body = "Review event details.",
+                SourceName = "School A",
+                Author = author,
+                Type = ContentType.Event,
+                Status = ContentStatus.PendingApproval,
+                EventStartsAt = DateTimeOffset.UtcNow.AddDays(2),
+                EventLocation = "Main auditorium",
+                Audiences = [new ContentAudience { Institution = school }]
+            },
+            new ContentItem
+            {
+                Id = ForeignPendingApprovalId,
+                Title = "Pending School B news",
+                Body = "Review this foreign item.",
+                SourceName = "School B",
+                Author = author,
+                Status = ContentStatus.PendingApproval,
                 Audiences = [new ContentAudience { Institution = other }]
             },
             new ContentItem
