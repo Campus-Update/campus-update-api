@@ -11,6 +11,7 @@ Authenticated mobile clients register or deactivate FCM devices with `POST /devi
 | POST `/admin/schools` | SuperAdmin | `{name, slug, state, isActive}`; 201 with institution ID and fields; duplicate slug 409 |
 | POST `/admin/users` | SuperAdmin | `{email, password, firstName, lastName, institutionId}`; creates a SchoolAdmin for an active institution, 201 without credentials; duplicate email 409 |
 | PATCH `/admin/users/{id}` | SuperAdmin | `{role, isActive}`; roles Student/Staff/SchoolAdmin only; invalidates refresh token; 200 without credentials |
+| GET `/admin/content/pending` | SuperAdmin | Lists PendingApproval content; optional `institutionId`, `type`, `search`, `page`, `pageSize`; paginated response includes content, event, author, and audience details |
 | PUT `/auth/academic-settings` | Authenticated active user | Existing fields plus optional `allCampusFeed` (default false) |
 | GET `/auth/profile` | Authenticated active user | Existing profile fields plus `allCampusFeed` |
 

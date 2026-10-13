@@ -3,6 +3,7 @@ using System.Text.Json;
 using CampusUpdate.Api.Contracts;
 using CampusUpdate.Domain.Schools;
 using CampusUpdate.Domain.Users;
+using CampusUpdate.Domain.Content;
 using CampusUpdate.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -16,6 +17,74 @@ namespace CampusUpdate.Api.Controllers;
 [Route("api/v1/admin")]
 public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<AppUser> hasher) : ControllerBase
 {
+    [HttpGet("content/pending")]
+    public async Task<ActionResult<AdminModerationContentPageResponse>> GetPendingContent(
+        [FromQuery] Guid? institutionId,
+        [FromQuery] ContentType? type,
+        [FromQuery] string? search,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var query = db.ContentItems.AsNoTracking()
+            .Where(x => x.Status == ContentStatus.PendingApproval);
+        if (institutionId.HasValue)
+            query = query.Where(x => x.Audiences.Any(a => a.InstitutionId == institutionId.Value));
+        if (type.HasValue)
+            query = query.Where(x => x.Type == type.Value);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(x => x.Title.Contains(term) || x.Body.Contains(term) ||
+                (x.Summary != null && x.Summary.Contains(term)));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .Include(x => x.Author)
+            .Include(x => x.Audiences)
+            .OrderByDescending(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+        return Ok(new AdminModerationContentPageResponse(
+            page,
+            pageSize,
+            totalCount,
+            items.Select(x => new AdminModerationContentResponse(
+                x.Id,
+                x.Title,
+                x.Body,
+                x.Summary,
+                x.Category,
+                x.CoverImageUrl,
+                x.Type,
+                x.Status,
+                x.Urgency,
+                x.SourceType,
+                x.SourceName,
+                x.CreatedAt,
+                x.EventStartsAt,
+                x.EventEndsAt,
+                x.EventLocation,
+                x.RegistrationUrl,
+                x.SponsorName,
+                x.TargetUrl,
+                x.AuthorId,
+                x.Author.Email,
+                $"{x.Author.FirstName} {x.Author.LastName}".Trim(),
+                x.Audiences.Select(a => new AdminContentAudienceResponse(
+                    a.InstitutionId,
+                    a.FacultyId,
+                    a.DepartmentId,
+                    a.ProgrammeId,
+                    a.AcademicLevelId,
+                    a.TargetAudience)).ToArray())).ToArray()));
+    }
+
     [HttpPost("schools")]
     public async Task<ActionResult<AdminSchoolResponse>> CreateSchool(CreateSchoolRequest request, CancellationToken cancellationToken)
     {

@@ -98,6 +98,47 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
+    public async Task SuperAdminCanListPendingContentWithFiltersAndPagination()
+    {
+        Login(UserRole.SuperAdmin);
+
+        var response = await _client.GetAsync("/api/v1/admin/content/pending?page=1&pageSize=1");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var firstPage = await response.Content.ReadFromJsonAsync<AdminModerationContentPageResponse>(JsonOptions);
+        Assert.NotNull(firstPage);
+        Assert.Equal(1, firstPage.Page);
+        Assert.Equal(1, firstPage.PageSize);
+        Assert.Equal(3, firstPage.TotalCount);
+        Assert.Single(firstPage.Items);
+        Assert.Equal(ContentStatus.PendingApproval, firstPage.Items.Single().Status);
+
+        var filteredResponse = await _client.GetAsync($"/api/v1/admin/content/pending?institutionId={_factory.SchoolId}&type=Event");
+        var filtered = await filteredResponse.Content.ReadFromJsonAsync<AdminModerationContentPageResponse>(JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, filteredResponse.StatusCode);
+        Assert.NotNull(filtered);
+        var eventItem = Assert.Single(filtered.Items);
+        Assert.Equal(_factory.PendingEventId, eventItem.Id);
+        Assert.Equal("Main auditorium", eventItem.EventLocation);
+        Assert.Equal(ContentType.Event, eventItem.Type);
+
+        var searchResponse = await _client.GetAsync($"/api/v1/admin/content/pending?institutionId={_factory.SchoolId}&search=Pending%20summary");
+        var search = await searchResponse.Content.ReadFromJsonAsync<AdminModerationContentPageResponse>(JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, searchResponse.StatusCode);
+        Assert.Equal(_factory.PendingApprovalId, Assert.Single(search!.Items).Id);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Student)]
+    [InlineData(UserRole.Staff)]
+    [InlineData(UserRole.SchoolAdmin)]
+    public async Task NonSuperAdminsCannotListPendingContent(UserRole role)
+    {
+        Login(role);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync("/api/v1/admin/content/pending")).StatusCode);
+    }
+
+    [Fact]
     public async Task CalendarReadsStayWithinTheUsersSchool()
     {
         Login(UserRole.SuperAdmin);
