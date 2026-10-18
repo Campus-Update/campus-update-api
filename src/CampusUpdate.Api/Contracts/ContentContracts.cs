@@ -57,4 +57,5 @@ public sealed record ContentResponse(
     DateTimeOffset? PublishedAt,
     string? Category = null,
     int UniqueReachCount = 0,
-    int NotificationOpenCount = 0);
+    int NotificationOpenCount = 0,
+    int Views = 0);

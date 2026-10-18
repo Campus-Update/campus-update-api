@@ -116,6 +116,75 @@ public sealed class AuthController(
     }
 
     [Authorize]
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword(
+        ChangePasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        if (passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.CurrentPassword) == PasswordVerificationResult.Failed)
+            return BadRequest(new ProblemDetails { Title = "The current password is incorrect." });
+        if (request.CurrentPassword == request.NewPassword)
+            return BadRequest(new ProblemDetails { Title = "The new password must be different from the current password." });
+
+        user.PasswordHash = passwordHasher.HashPassword(user, request.NewPassword);
+        user.RefreshTokenHash = null;
+        user.RefreshTokenExpiresAt = null;
+        await db.SaveChangesAsync(cancellationToken);
+        return NoContent();
+    }
+
+    [Authorize]
+    [HttpGet("sessions")]
+    public async Task<ActionResult<IReadOnlyCollection<AuthSessionResponse>>> GetSessions(CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        if (user.RefreshTokenHash is null || user.RefreshTokenExpiresAt <= DateTimeOffset.UtcNow)
+            return Ok(Array.Empty<AuthSessionResponse>());
+
+        var latestLogin = await db.UserActivities.AsNoTracking()
+            .Where(x => x.UserId == user.Id && x.ActivityType == "login")
+            .OrderByDescending(x => x.OccurredAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (latestLogin is null) return Ok(Array.Empty<AuthSessionResponse>());
+        var lastActiveAt = await db.UserActivities.AsNoTracking()
+            .Where(x => x.UserId == user.Id)
+            .Select(x => (DateTimeOffset?)x.OccurredAt)
+            .MaxAsync(cancellationToken) ?? latestLogin.OccurredAt;
+        return Ok(new[] { new AuthSessionResponse(latestLogin.Id, latestLogin.OccurredAt, lastActiveAt, true) });
+    }
+
+    [Authorize]
+    [HttpDelete("sessions/{id:guid}")]
+    public async Task<IActionResult> RevokeSession(Guid id, CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        var latestLoginId = await db.UserActivities.AsNoTracking()
+            .Where(x => x.UserId == user.Id && x.ActivityType == "login")
+            .OrderByDescending(x => x.OccurredAt)
+            .Select(x => (Guid?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (latestLoginId != id) return NotFound();
+        user.RefreshTokenHash = null;
+        user.RefreshTokenExpiresAt = null;
+        await db.SaveChangesAsync(cancellationToken);
+        return NoContent();
+    }
+
+    [Authorize]
+    [HttpDelete("sessions/others")]
+    public IActionResult RevokeOtherSessions()
+    {
+        // The current token model stores only one refresh token per user, so there are no
+        // additional refreshable sessions to revoke. The route is ready for the UI and can
+        // be expanded if the data model moves to multiple concurrent sessions.
+        return NoContent();
+    }
+
+    [Authorize]
     [HttpPut("academic-settings")]
     public async Task<ActionResult<UserProfileResponse>> UpdateAcademicSettings(
         AcademicSettingsRequest request,

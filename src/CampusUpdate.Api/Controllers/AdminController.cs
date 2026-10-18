@@ -37,6 +37,7 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
+        var activeSince = DateTimeOffset.UtcNow.AddDays(-7);
         var items = await query.OrderBy(x => x.Name).ThenBy(x => x.Id)
             .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(x => new AdminSchoolListItemResponse(
@@ -45,7 +46,10 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
                 db.Users.Count(u => u.InstitutionId == x.Id && u.Role == UserRole.Staff),
                 db.Users.Count(u => u.InstitutionId == x.Id && u.Role == UserRole.SchoolAdmin),
                 db.ContentItems.Count(c => c.Status == ContentStatus.Published &&
-                    c.Audiences.Any(a => a.InstitutionId == x.Id))))
+                    c.Audiences.Any(a => a.InstitutionId == x.Id)),
+                db.UserActivities.Where(a => a.InstitutionId == x.Id && a.UserId != null && a.OccurredAt >= activeSince)
+                    .Select(a => a.UserId).Distinct().Count(),
+                db.ContentViews.Count(v => v.InstitutionId == x.Id)))
             .ToListAsync(cancellationToken);
         return Ok(new AdminSchoolPageResponse(page, pageSize, totalCount, items));
     }
@@ -124,8 +128,11 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
     public async Task<ActionResult<AdminAuditLogPageResponse>> GetAuditLog(
         [FromQuery] Guid? institutionId,
         [FromQuery] Guid? actorId,
+        [FromQuery] Guid? administratorId,
         [FromQuery] Guid? targetId,
         [FromQuery] string? action,
+        [FromQuery] string? actionTag,
+        [FromQuery] string? search,
         [FromQuery] DateTimeOffset? from,
         [FromQuery] DateTimeOffset? to,
         [FromQuery] int page = 1,
@@ -136,9 +143,32 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
         pageSize = Math.Clamp(pageSize, 1, 100);
         var query = db.AuditLogs.AsNoTracking();
         if (institutionId.HasValue) query = query.Where(x => x.InstitutionId == institutionId.Value);
+        if (administratorId.HasValue) actorId = administratorId;
         if (actorId.HasValue) query = query.Where(x => x.ActorId == actorId.Value);
         if (targetId.HasValue) query = query.Where(x => x.TargetId == targetId.Value);
         if (!string.IsNullOrWhiteSpace(action)) query = query.Where(x => x.Action.Contains(action.Trim()));
+        if (!string.IsNullOrWhiteSpace(actionTag))
+        {
+            var tag = actionTag.Trim();
+            query = tag.ToLowerInvariant() switch
+            {
+                "school" => query.Where(x => x.Action == "SchoolCreated"),
+                "user" => query.Where(x => x.Action == "SchoolAdminCreated"),
+                "access" => query.Where(x => x.Action == "UserAccessUpdated" || x.Details.Contains("\"actionTag\":\"Access\"")),
+                "advertisement" => query.Where(x => x.Details.Contains("\"actionTag\":\"Advertisement\"")),
+                "external event" => query.Where(x => x.Details.Contains("\"actionTag\":\"External event\"")),
+                _ => null!
+            };
+            if (query is null) return BadRequest(new ProblemDetails { Title = "Unknown audit action tag." });
+        }
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(x => x.Action.Contains(term) || x.Details.Contains(term) ||
+                db.Users.Any(u => u.Id == x.ActorId &&
+                    (u.Email.Contains(term) || u.FirstName.Contains(term) || u.LastName.Contains(term))) ||
+                db.Institutions.Any(i => i.Id == x.InstitutionId && i.Name.Contains(term)));
+        }
         if (from.HasValue) query = query.Where(x => x.CreatedAt >= from.Value);
         if (to.HasValue) query = query.Where(x => x.CreatedAt < to.Value);
 
@@ -153,15 +183,18 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
                               entry.ActorId,
                               ActorName = actor == null ? null : actor.FirstName + " " + actor.LastName,
                               ActorEmail = actor == null ? null : actor.Email,
+                              ActorRole = actor == null ? (UserRole?)null : actor.Role,
                               entry.Action,
                               entry.TargetId,
                               entry.InstitutionId,
+                              InstitutionName = db.Institutions.Where(i => i.Id == entry.InstitutionId).Select(i => i.Name).FirstOrDefault(),
                               entry.Details,
                               entry.CreatedAt
                           })
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
         var items = rows.Select(x => new AdminAuditLogResponse(x.Id, x.ActorId, x.ActorName, x.ActorEmail,
-            x.Action, x.TargetId, GetTargetType(x.Action), x.InstitutionId, x.Details, x.CreatedAt)).ToArray();
+            x.ActorRole, x.Action, GetActionTag(x.Action, x.Details), x.TargetId, GetTargetType(x.Action), x.InstitutionId,
+            x.InstitutionName, x.Details, x.CreatedAt)).ToArray();
         return Ok(new AdminAuditLogPageResponse(page, pageSize, totalCount, items));
     }
 
@@ -320,6 +353,23 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
         "ContentCreated" or "ContentUpdated" or "ContentStatusChanged" or "ContentArchived" => "Content",
         _ => "Unknown"
     };
+
+    private static string GetActionTag(string action, string details)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(details);
+            if (document.RootElement.TryGetProperty("actionTag", out var tag)) return tag.GetString() ?? "Access";
+        }
+        catch (JsonException) { }
+        return action switch
+        {
+            "SchoolCreated" => "School",
+            "SchoolAdminCreated" => "User",
+            "UserAccessUpdated" => "Access",
+            _ => "Access"
+        };
+    }
 
     private void Audit(string action, Guid targetId, Guid institutionId, object details) => db.AuditLogs.Add(new AuditLog
     {

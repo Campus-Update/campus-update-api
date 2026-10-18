@@ -78,7 +78,8 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
                 x.SourceName, x.PublishedAt, x.Category,
                 db.ContentViews.Count(v => v.ContentItemId == x.Id),
-                db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null)))
+                db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
+                db.ContentViews.Count(v => v.ContentItemId == x.Id)))
             .ToListAsync(cancellationToken);
         db.UserActivities.Add(new CampusUpdate.Domain.Notifications.UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "feed_fetch", OccurredAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(cancellationToken);
@@ -105,7 +106,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         item.SponsorName = request.SponsorName?.Trim(); item.TargetUrl = request.TargetUrl;
         db.ContentAudiences.RemoveRange(item.Audiences); item.Audiences = request.Audiences.Select(ToAudience).ToList();
         Audit("ContentUpdated", item.Id, request.Audiences.First().InstitutionId,
-            new { targetType = "Content", item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
+            new { targetType = "Content", actionTag = ContentActionTag(item.Type), item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
         await db.SaveChangesAsync(cancellationToken);
         return Ok(await ToResponseAsync(item, cancellationToken));
     }
@@ -131,7 +132,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         var previousStatus = item.Status;
         item.Status = request.Status; item.PublishedAt = request.Status == ContentStatus.Published ? DateTimeOffset.UtcNow : item.PublishedAt;
         Audit("ContentStatusChanged", item.Id, item.Audiences.First().InstitutionId,
-            new { targetType = "Content", item.Title, previousStatus, currentStatus = request.Status });
+            new { targetType = "Content", actionTag = ContentActionTag(item.Type), item.Title, previousStatus, currentStatus = request.Status });
         await db.SaveChangesAsync(cancellationToken);
         if (request.Status == ContentStatus.Published)
             await notifications.QueuePublishedContentAsync(item, cancellationToken);
@@ -149,7 +150,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (user.Role != UserRole.SuperAdmin && item.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
         var institutionId = item.Audiences.First().InstitutionId;
         item.Status = ContentStatus.Archived;
-        Audit("ContentArchived", item.Id, institutionId, new { targetType = "Content", item.Title });
+        Audit("ContentArchived", item.Id, institutionId, new { targetType = "Content", actionTag = ContentActionTag(item.Type), item.Title });
         await db.SaveChangesAsync(cancellationToken); return NoContent();
     }
 
@@ -207,7 +208,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         };
         db.ContentItems.Add(item);
         Audit("ContentCreated", item.Id, request.Audiences.First().InstitutionId,
-            new { targetType = "Content", item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
+            new { targetType = "Content", actionTag = ContentActionTag(item.Type), item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
         await db.SaveChangesAsync(cancellationToken);
         var response = await ToResponseAsync(item, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = item.Id }, response);
@@ -237,7 +238,8 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
                 x.SourceName, x.PublishedAt, x.Category,
                 db.ContentViews.Count(v => v.ContentItemId == x.Id),
-                db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null)))
+                db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
+                db.ContentViews.Count(v => v.ContentItemId == x.Id)))
             .SingleOrDefaultAsync(cancellationToken);
         if (item is null) return NotFound();
         if (user.Role is UserRole.Student or UserRole.Staff)
@@ -282,12 +284,18 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             ? await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.IsActive, cancellationToken) : null;
 
     private static ContentAudience ToAudience(AudienceRequest a) => new() { TargetAudience = a.TargetAudience, InstitutionId = a.InstitutionId, FacultyId = a.FacultyId, DepartmentId = a.DepartmentId, ProgrammeId = a.ProgrammeId, AcademicLevelId = a.AcademicLevelId };
+    private static string ContentActionTag(ContentType type) => type switch
+    {
+        ContentType.Advertisement => "Advertisement",
+        ContentType.Event => "External event",
+        _ => "Access"
+    };
     private async Task<ContentResponse> ToResponseAsync(ContentItem x, CancellationToken cancellationToken)
     {
         var uniqueReach = await db.ContentViews.CountAsync(v => v.ContentItemId == x.Id, cancellationToken);
         var notificationOpens = await db.UserNotifications.CountAsync(n => n.ContentItemId == x.Id && n.OpenedAt != null, cancellationToken);
         return new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
-            x.SourceName, x.PublishedAt, x.Category, uniqueReach, notificationOpens);
+            x.SourceName, x.PublishedAt, x.Category, uniqueReach, notificationOpens, uniqueReach);
     }
 
     private void Audit(string action, Guid targetId, Guid institutionId, object details) => db.AuditLogs.Add(new AuditLog

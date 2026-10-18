@@ -95,6 +95,19 @@ Content responses include `uniqueReachCount` and `notificationOpenCount`. `uniqu
 
 Auth and feed operations save durable activity events asynchronously. The scheduled job aggregates those events into `usageCounters` (registrations, session activity events, and feed fetches by day/institution). Counters can lag by one scheduler interval. A session activity event is a login, refresh or feed fetch, not a distinct person; DAU is the distinct-person measure.
 
+## SuperAdmin frontend follow-up
+
+The portal data routes provide the fields needed by the newer admin screens:
+
+- `GET /api/v1/admin/schools` returns school status and the existing `studentCount`, `staffCount`, `adminCount`, and `liveContentCount`, plus `weeklyActiveCount` (distinct users active during the previous seven days) and `viewCount` (recorded unique content-detail views for the institution).
+- `GET /api/v1/admin/users` returns name, email, role, institution, `isActive`, and `lastActiveAt`, with paging and filters for institution, role, status, and text search.
+- `GET /api/v1/admin/audit` supports `search`, `administratorId` (also `actorId`), `action`, `actionTag`, `institutionId`, `from`, `to`, and paging. Rows include actor name/email/role, action text and tag, target, institution ID/name, details, and timestamp. Date `from` is inclusive and `to` is exclusive.
+- Content responses expose `views`, `uniqueReachCount`, and `notificationOpenCount`. `views` currently counts unique content-detail views, the same measure as `uniqueReachCount`; feed impressions are not collected.
+
+Authenticated users can change passwords with `POST /api/v1/auth/change-password` and `{ "currentPassword": "...", "newPassword": "..." }`. Success returns 204 and invalidates the refresh token. `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{id}`, and `DELETE /api/v1/auth/sessions/others` support the Security screen. The current token model permits one refreshable session per user, so there are no concurrent refresh sessions to revoke; existing access tokens expire normally. Device, IP, and browser metadata are not recorded.
+
+The optional browser-only platform settings and notification preference APIs are not part of this implementation. To add them later, the platform settings need persistent storage, and notification email/cadence preferences need corresponding user preference fields.
+
 ## Deployment and verification
 
 Apply the EF migrations before deployment. Set `Fcm__ServiceAccountJson` and `CRON_SECRET` in each deployment. The existing authenticated scheduler `/api/v1/internal/notifications/retry` also aggregates usage events daily at approximately 03:00 UTC (Hobby-compatible). Background aggregation uses database transactions and resumes from saved events after interruption.

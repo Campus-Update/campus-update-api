@@ -22,7 +22,9 @@ public sealed record AdminSchoolListItemResponse(
     int StudentCount,
     int StaffCount,
     int AdminCount,
-    int LiveContentCount);
+    int LiveContentCount,
+    int WeeklyActiveCount = 0,
+    int ViewCount = 0);
 
 public sealed record AdminSchoolPageResponse(
     int Page,
@@ -77,10 +79,13 @@ public sealed record AdminAuditLogResponse(
     Guid ActorId,
     string? ActorName,
     string? ActorEmail,
+    UserRole? ActorRole,
     string Action,
+    string ActionTag,
     Guid TargetId,
     string TargetType,
     Guid InstitutionId,
+    string? InstitutionName,
     string Details,
     DateTimeOffset CreatedAt);
 
@@ -122,7 +127,8 @@ public sealed record AdminModerationContentResponse(
     string AuthorName,
     IReadOnlyCollection<AdminContentAudienceResponse> Audiences,
     int UniqueReachCount = 0,
-    int NotificationOpenCount = 0);
+    int NotificationOpenCount = 0,
+    int Views = 0);
 
 public sealed record AdminModerationContentPageResponse(
     int Page,

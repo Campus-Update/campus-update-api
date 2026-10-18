@@ -15,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Identity;
 
 namespace CampusUpdate.Api.Tests;
 
@@ -84,6 +85,46 @@ public sealed class AccessControlTests : IDisposable
             new CreateSchoolAdminRequest("admin@example.test", "test-password-123", "Test", "Admin", Guid.NewGuid()))).StatusCode);
         using var scope = _factory.Services.CreateScope();
         Assert.Empty(await scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>().AuditLogs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task PasswordAndSessionRoutesUseTheCurrentSingleRefreshSession()
+    {
+        var (userId, token) = _factory.AddUser(UserRole.Student);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var user = await db.Users.SingleAsync(x => x.Id == userId);
+            user.PasswordHash = scope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>()
+                .HashPassword(user, "OldPassword1!");
+            user.RefreshTokenHash = scope.ServiceProvider.GetRequiredService<ITokenService>().HashRefreshToken("refresh-token");
+            user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(1);
+            db.UserActivities.Add(new CampusUpdate.Domain.Notifications.UserActivity
+            {
+                UserId = userId,
+                InstitutionId = _factory.SchoolId,
+                ActivityType = "login",
+                OccurredAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var sessions = await _client.GetFromJsonAsync<AuthSessionResponse[]>("/api/v1/auth/sessions", JsonOptions);
+        var session = Assert.Single(sessions!);
+        Assert.True(session.IsCurrent);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/auth/change-password",
+            new ChangePasswordRequest("wrong", "NewPassword1!"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.PostAsJsonAsync("/api/v1/auth/change-password",
+            new ChangePasswordRequest("OldPassword1!", "NewPassword1!"))).StatusCode);
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var updatedUser = await verifyScope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>().Users
+            .SingleAsync(x => x.Id == userId);
+        Assert.Null(updatedUser.RefreshTokenHash);
+        Assert.Equal(PasswordVerificationResult.Success,
+            verifyScope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>()
+                .VerifyHashedPassword(updatedUser, updatedUser.PasswordHash, "NewPassword1!"));
     }
 
     [Fact]
@@ -362,6 +403,8 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(1, school.StaffCount);
         Assert.Equal(1, school.AdminCount);
         Assert.Equal(2, school.LiveContentCount);
+        Assert.Equal(1, school.WeeklyActiveCount);
+        Assert.Equal(0, school.ViewCount);
         var detail = await _client.GetFromJsonAsync<AdminSchoolDetailResponse>(
             $"/api/v1/admin/schools/{_factory.SchoolId}", JsonOptions);
         Assert.NotNull(detail);
@@ -405,10 +448,12 @@ public sealed class AccessControlTests : IDisposable
         Assert.NotNull(response);
         Assert.Equal(1, response.UniqueReachCount);
         Assert.Equal(1, response.NotificationOpenCount);
+        Assert.Equal(1, response.Views);
         var feed = await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/feed", JsonOptions);
         var feedItem = Assert.Single(feed!, x => x.Id == _factory.PublishedId);
         Assert.Equal(1, feedItem.UniqueReachCount);
         Assert.Equal(1, feedItem.NotificationOpenCount);
+        Assert.Equal(1, feedItem.Views);
     }
 
     [Fact]
@@ -427,8 +472,14 @@ public sealed class AccessControlTests : IDisposable
             $"/api/v1/admin/audit?targetId={content.Id}", JsonOptions);
         Assert.NotNull(audit);
         Assert.Equal(2, audit.TotalCount);
-        Assert.Contains(audit.Items, x => x.Action == "ContentCreated" && x.TargetType == "Content" && x.ActorEmail != null);
+        Assert.Contains(audit.Items, x => x.Action == "ContentCreated" && x.TargetType == "Content" &&
+            x.ActorEmail != null && x.ActorRole == UserRole.SchoolAdmin && x.InstitutionName == "School A" &&
+            x.ActionTag == "Access");
         Assert.Contains(audit.Items, x => x.Action == "ContentStatusChanged");
+        var searchedAudit = await _client.GetFromJsonAsync<AdminAuditLogPageResponse>(
+            $"/api/v1/admin/audit?search=School%20A&administratorId={audit.Items.First().ActorId}&actionTag=Access", JsonOptions);
+        Assert.NotNull(searchedAudit);
+        Assert.Equal(2, searchedAudit.TotalCount);
     }
 
     [Fact]
