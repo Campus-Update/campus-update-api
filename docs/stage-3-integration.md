@@ -81,7 +81,32 @@ SuperAdmins use `GET /api/v1/admin/analytics?days=30` (1?365). `totals` includes
 
 DAU counts distinct users with registration/login/refresh/feed activity since midnight UTC. `activeUsers` counts enabled accounts and is distinct from DAU. `activePosts` counts all currently Published content; `publishedContent` counts publications in the requested period. Views count each authenticated student/staff user once per content item, including concurrent requests.
 
+## SuperAdmin portal data
+
+All routes below require a SuperAdmin bearer token. Lists use `{page, pageSize, totalCount, items}` with a default page size of 20 and a maximum of 100.
+
+`GET /api/v1/admin/schools?search=osun&isActive=true&page=1&pageSize=20` lists active or inactive institutions. Each item includes school identity/status and `studentCount`, `staffCount`, `adminCount` (SchoolAdmin accounts), and `liveContentCount` (distinct published items targeted to the institution). Counts include inactive user accounts; use the user list's `isActive` filter for an active-only breakdown. `GET /api/v1/admin/schools/{id}` returns the same summary plus the school's faculty, department, programme and academic-level hierarchy. Missing school IDs return 404.
+
+`GET /api/v1/admin/users?institutionId=<UUID>&role=Student&isActive=true&search=ada&page=1&pageSize=20` lists users with their role, institution name/ID, activation state, creation time and `lastActiveAt`. Filters are optional. `lastActiveAt` is the latest recorded authentication/feed activity or first content-detail view; it is null if the account has no recorded activity. `PATCH /api/v1/admin/users/{id}` remains the access-update operation.
+
+`GET /api/v1/admin/audit?institutionId=<UUID>&actorId=<UUID>&targetId=<UUID>&action=Content&from=<ISO-8601>&to=<ISO-8601>&page=1&pageSize=20` returns newest-first entries with actor ID/name/email, action, target ID/type, institution, details and timestamp. `from` is inclusive and `to` is exclusive. The audit log currently records school creation, school-admin provisioning, account role/activation changes, and content creation, editing, status changes and archiving.
+
+Content responses include `uniqueReachCount` and `notificationOpenCount`. `uniqueReachCount` counts distinct student/staff accounts with a recorded content-detail view; each account is counted once per content item. `notificationOpenCount` counts opened notification records for that content. These are separate signals: feed-card appearances are not tracked as impressions, and opening a push notification does not by itself mean the user opened the content detail page.
+
 Auth and feed operations save durable activity events asynchronously. The scheduled job aggregates those events into `usageCounters` (registrations, session activity events, and feed fetches by day/institution). Counters can lag by one scheduler interval. A session activity event is a login, refresh or feed fetch, not a distinct person; DAU is the distinct-person measure.
+
+## SuperAdmin frontend follow-up
+
+The portal data routes provide the fields needed by the newer admin screens:
+
+- `GET /api/v1/admin/schools` returns school status and the existing `studentCount`, `staffCount`, `adminCount`, and `liveContentCount`, plus `weeklyActiveCount` (distinct users active during the previous seven days) and `viewCount` (recorded unique content-detail views for the institution).
+- `GET /api/v1/admin/users` returns name, email, role, institution, `isActive`, and `lastActiveAt`, with paging and filters for institution, role, status, and text search.
+- `GET /api/v1/admin/audit` supports `search`, `administratorId` (also `actorId`), `action`, `actionTag`, `institutionId`, `from`, `to`, and paging. Rows include actor name/email/role, action text and tag, target, institution ID/name, details, and timestamp. Date `from` is inclusive and `to` is exclusive.
+- Content responses expose `views`, `uniqueReachCount`, and `notificationOpenCount`. `views` currently counts unique content-detail views, the same measure as `uniqueReachCount`; feed impressions are not collected.
+
+Authenticated users can change passwords with `POST /api/v1/auth/change-password` and `{ "currentPassword": "...", "newPassword": "..." }`. Success returns 204 and invalidates the refresh token. `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{id}`, and `DELETE /api/v1/auth/sessions/others` support the Security screen. The current token model permits one refreshable session per user, so there are no concurrent refresh sessions to revoke; existing access tokens expire normally. Device, IP, and browser metadata are not recorded.
+
+The optional browser-only platform settings and notification preference APIs are not part of this implementation. To add them later, the platform settings need persistent storage, and notification email/cadence preferences need corresponding user preference fields.
 
 ## Deployment and verification
 

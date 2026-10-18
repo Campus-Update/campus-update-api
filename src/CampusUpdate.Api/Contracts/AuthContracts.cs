@@ -17,6 +17,14 @@ public sealed record RegisterRequest(
     string? MatriculationOrStaffNumber);
 
 public sealed record LoginRequest([EmailAddress] string Email, string Password);
+public sealed record ChangePasswordRequest(
+    [Required] string CurrentPassword,
+    [Required, MinLength(8)] string NewPassword);
+public sealed record AuthSessionResponse(
+    Guid Id,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset LastActiveAt,
+    bool IsCurrent);
 public sealed record RefreshRequest(string RefreshToken);
 public sealed record AuthResponse(Guid UserId, string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
 public sealed record UpdateProfileRequest(
