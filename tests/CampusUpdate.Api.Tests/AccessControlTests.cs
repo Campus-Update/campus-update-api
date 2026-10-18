@@ -160,6 +160,9 @@ public sealed class AccessControlTests : IDisposable
             new CreateSchoolRequest("Example", "example", "Osun"))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/admin/users",
             new CreateSchoolAdminRequest("admin@example.test", "test-password-123", "Test", "Admin", _factory.SchoolId))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/admin/schools")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/admin/users")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/admin/audit")).StatusCode);
     }
 
     [Theory]
@@ -328,6 +331,104 @@ public sealed class AccessControlTests : IDisposable
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal(1, body.RootElement.GetProperty("totals").GetProperty("dau").GetInt32());
         Assert.True(body.RootElement.GetProperty("totals").GetProperty("totalRegisteredUsers").GetInt32() >= 3);
+    }
+
+    [Fact]
+    public async Task SuperAdminSchoolAndUserListsIncludeCountsStatusAndLastActive()
+    {
+        var (studentId, _) = _factory.AddUser(UserRole.Student);
+        _factory.AddUser(UserRole.Staff);
+        _factory.AddUser(UserRole.SchoolAdmin);
+        var lastActive = DateTimeOffset.UtcNow.AddMinutes(-5);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            db.UserActivities.Add(new CampusUpdate.Domain.Notifications.UserActivity
+            {
+                UserId = studentId,
+                InstitutionId = _factory.SchoolId,
+                ActivityType = "login",
+                OccurredAt = lastActive
+            });
+            db.SaveChanges();
+        }
+
+        Login(UserRole.SuperAdmin);
+        var schools = await _client.GetFromJsonAsync<AdminSchoolPageResponse>("/api/v1/admin/schools?isActive=true", JsonOptions);
+        Assert.NotNull(schools);
+        var school = Assert.Single(schools.Items, x => x.Id == _factory.SchoolId);
+        Assert.True(school.IsActive);
+        Assert.Equal(1, school.StudentCount);
+        Assert.Equal(1, school.StaffCount);
+        Assert.Equal(1, school.AdminCount);
+        Assert.Equal(2, school.LiveContentCount);
+        var detail = await _client.GetFromJsonAsync<AdminSchoolDetailResponse>(
+            $"/api/v1/admin/schools/{_factory.SchoolId}", JsonOptions);
+        Assert.NotNull(detail);
+        Assert.Equal(school.StudentCount, detail.StudentCount);
+        Assert.Single(detail.Faculties);
+
+        var users = await _client.GetFromJsonAsync<AdminUserPageResponse>(
+            $"/api/v1/admin/users?institutionId={_factory.SchoolId}&role=Student", JsonOptions);
+        var listedStudent = Assert.Single(users!.Items);
+        Assert.Equal(studentId, listedStudent.Id);
+        Assert.Equal("School A", listedStudent.InstitutionName);
+        Assert.Equal(lastActive, listedStudent.LastActiveAt);
+    }
+
+    [Fact]
+    public async Task ContentResponsesIncludeUniqueReachAndNotificationOpens()
+    {
+        var (studentId, token) = _factory.AddUser(UserRole.Student);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            db.ContentViews.Add(new CampusUpdate.Domain.Notifications.ContentView
+            {
+                UserId = studentId,
+                ContentItemId = _factory.PublishedId,
+                InstitutionId = _factory.SchoolId
+            });
+            db.UserNotifications.Add(new CampusUpdate.Domain.Notifications.UserNotification
+            {
+                UserId = studentId,
+                ContentItemId = _factory.PublishedId,
+                Title = "News",
+                Body = "News",
+                OpenedAt = DateTimeOffset.UtcNow
+            });
+            db.SaveChanges();
+        }
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await _client.GetFromJsonAsync<ContentResponse>($"/api/v1/content/{_factory.PublishedId}", JsonOptions);
+        Assert.NotNull(response);
+        Assert.Equal(1, response.UniqueReachCount);
+        Assert.Equal(1, response.NotificationOpenCount);
+        var feed = await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/feed", JsonOptions);
+        var feedItem = Assert.Single(feed!, x => x.Id == _factory.PublishedId);
+        Assert.Equal(1, feedItem.UniqueReachCount);
+        Assert.Equal(1, feedItem.NotificationOpenCount);
+    }
+
+    [Fact]
+    public async Task ContentMutationsAreAuditedAndVisibleToSuperAdmin()
+    {
+        Login(UserRole.SchoolAdmin);
+        var created = await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.SchoolId));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var content = await created.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.NotNull(content);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PatchAsJsonAsync($"/api/v1/content/{content.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.PendingApproval))).StatusCode);
+
+        Login(UserRole.SuperAdmin);
+        var audit = await _client.GetFromJsonAsync<AdminAuditLogPageResponse>(
+            $"/api/v1/admin/audit?targetId={content.Id}", JsonOptions);
+        Assert.NotNull(audit);
+        Assert.Equal(2, audit.TotalCount);
+        Assert.Contains(audit.Items, x => x.Action == "ContentCreated" && x.TargetType == "Content" && x.ActorEmail != null);
+        Assert.Contains(audit.Items, x => x.Action == "ContentStatusChanged");
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using CampusUpdate.Api.Contracts;
 using CampusUpdate.Domain.Content;
 using CampusUpdate.Domain.Users;
@@ -74,7 +75,10 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             .ThenByDescending(x => x.PublishedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt, x.Category))
+            .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
+                x.SourceName, x.PublishedAt, x.Category,
+                db.ContentViews.Count(v => v.ContentItemId == x.Id),
+                db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null)))
             .ToListAsync(cancellationToken);
         db.UserActivities.Add(new CampusUpdate.Domain.Notifications.UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "feed_fetch", OccurredAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(cancellationToken);
@@ -100,8 +104,10 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         item.EventEndsAt = request.EventEndsAt; item.EventLocation = request.EventLocation?.Trim(); item.RegistrationUrl = request.RegistrationUrl;
         item.SponsorName = request.SponsorName?.Trim(); item.TargetUrl = request.TargetUrl;
         db.ContentAudiences.RemoveRange(item.Audiences); item.Audiences = request.Audiences.Select(ToAudience).ToList();
+        Audit("ContentUpdated", item.Id, request.Audiences.First().InstitutionId,
+            new { targetType = "Content", item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
         await db.SaveChangesAsync(cancellationToken);
-        return Ok(ToResponse(item));
+        return Ok(await ToResponseAsync(item, cancellationToken));
     }
 
     [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
@@ -122,11 +128,14 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             _ => false
         };
         if (!allowed) return BadRequest(new ProblemDetails { Title = "Invalid content status transition." });
+        var previousStatus = item.Status;
         item.Status = request.Status; item.PublishedAt = request.Status == ContentStatus.Published ? DateTimeOffset.UtcNow : item.PublishedAt;
+        Audit("ContentStatusChanged", item.Id, item.Audiences.First().InstitutionId,
+            new { targetType = "Content", item.Title, previousStatus, currentStatus = request.Status });
         await db.SaveChangesAsync(cancellationToken);
         if (request.Status == ContentStatus.Published)
             await notifications.QueuePublishedContentAsync(item, cancellationToken);
-        return Ok(ToResponse(item));
+        return Ok(await ToResponseAsync(item, cancellationToken));
     }
 
     [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
@@ -138,7 +147,10 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         var item = await db.ContentItems.Include(x => x.Audiences).SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (item is null) return NotFound();
         if (user.Role != UserRole.SuperAdmin && item.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
-        item.Status = ContentStatus.Archived; await db.SaveChangesAsync(cancellationToken); return NoContent();
+        var institutionId = item.Audiences.First().InstitutionId;
+        item.Status = ContentStatus.Archived;
+        Audit("ContentArchived", item.Id, institutionId, new { targetType = "Content", item.Title });
+        await db.SaveChangesAsync(cancellationToken); return NoContent();
     }
 
     [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
@@ -194,8 +206,10 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             }).ToList()
         };
         db.ContentItems.Add(item);
+        Audit("ContentCreated", item.Id, request.Audiences.First().InstitutionId,
+            new { targetType = "Content", item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
         await db.SaveChangesAsync(cancellationToken);
-        var response = new ContentResponse(item.Id, item.Title, item.Body, item.Type, item.Status, item.Urgency, item.SourceType, item.SourceName, item.PublishedAt, item.Category);
+        var response = await ToResponseAsync(item, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = item.Id }, response);
     }
 
@@ -220,7 +234,10 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                     (a.DepartmentId == null || a.DepartmentId == user.DepartmentId) &&
                     (a.ProgrammeId == null || a.ProgrammeId == user.ProgrammeId) &&
                     (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))))))
-            .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt, x.Category))
+            .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
+                x.SourceName, x.PublishedAt, x.Category,
+                db.ContentViews.Count(v => v.ContentItemId == x.Id),
+                db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null)))
             .SingleOrDefaultAsync(cancellationToken);
         if (item is null) return NotFound();
         if (user.Role is UserRole.Student or UserRole.Staff)
@@ -265,5 +282,20 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             ? await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.IsActive, cancellationToken) : null;
 
     private static ContentAudience ToAudience(AudienceRequest a) => new() { TargetAudience = a.TargetAudience, InstitutionId = a.InstitutionId, FacultyId = a.FacultyId, DepartmentId = a.DepartmentId, ProgrammeId = a.ProgrammeId, AcademicLevelId = a.AcademicLevelId };
-    private static ContentResponse ToResponse(ContentItem x) => new(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName, x.PublishedAt, x.Category);
+    private async Task<ContentResponse> ToResponseAsync(ContentItem x, CancellationToken cancellationToken)
+    {
+        var uniqueReach = await db.ContentViews.CountAsync(v => v.ContentItemId == x.Id, cancellationToken);
+        var notificationOpens = await db.UserNotifications.CountAsync(n => n.ContentItemId == x.Id && n.OpenedAt != null, cancellationToken);
+        return new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
+            x.SourceName, x.PublishedAt, x.Category, uniqueReach, notificationOpens);
+    }
+
+    private void Audit(string action, Guid targetId, Guid institutionId, object details) => db.AuditLogs.Add(new AuditLog
+    {
+        ActorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!),
+        Action = action,
+        TargetId = targetId,
+        InstitutionId = institutionId,
+        Details = JsonSerializer.Serialize(details)
+    });
 }

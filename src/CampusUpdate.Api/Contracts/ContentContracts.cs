@@ -55,4 +55,6 @@ public sealed record ContentResponse(
     SourceType SourceType,
     string SourceName,
     DateTimeOffset? PublishedAt,
-    string? Category = null);
+    string? Category = null,
+    int UniqueReachCount = 0,
+    int NotificationOpenCount = 0);

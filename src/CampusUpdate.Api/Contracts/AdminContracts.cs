@@ -11,6 +11,39 @@ public sealed record CreateSchoolRequest(
 
 public sealed record AdminSchoolResponse(Guid Id, string Name, string Slug, string? State, bool IsActive);
 
+public sealed record AdminSchoolListItemResponse(
+    Guid Id,
+    string Name,
+    string Slug,
+    string? State,
+    string? Acronym,
+    string? LogoUrl,
+    bool IsActive,
+    int StudentCount,
+    int StaffCount,
+    int AdminCount,
+    int LiveContentCount);
+
+public sealed record AdminSchoolPageResponse(
+    int Page,
+    int PageSize,
+    int TotalCount,
+    IReadOnlyCollection<AdminSchoolListItemResponse> Items);
+
+public sealed record AdminSchoolDetailResponse(
+    Guid Id,
+    string Name,
+    string Slug,
+    string? State,
+    string? Acronym,
+    string? LogoUrl,
+    bool IsActive,
+    int StudentCount,
+    int StaffCount,
+    int AdminCount,
+    int LiveContentCount,
+    IReadOnlyCollection<FacultyResponse> Faculties);
+
 public sealed record CreateSchoolAdminRequest(
     [Required, EmailAddress] string Email,
     [Required, MinLength(12)] string Password,
@@ -20,6 +53,42 @@ public sealed record CreateSchoolAdminRequest(
 
 public sealed record UpdateAdminUserRequest(UserRole Role, bool IsActive);
 public sealed record AdminUserResponse(Guid Id, string Email, UserRole Role, Guid InstitutionId, bool IsActive);
+
+public sealed record AdminUserListItemResponse(
+    Guid Id,
+    string Email,
+    string FirstName,
+    string LastName,
+    UserRole Role,
+    Guid InstitutionId,
+    string InstitutionName,
+    bool IsActive,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastActiveAt);
+
+public sealed record AdminUserPageResponse(
+    int Page,
+    int PageSize,
+    int TotalCount,
+    IReadOnlyCollection<AdminUserListItemResponse> Items);
+
+public sealed record AdminAuditLogResponse(
+    Guid Id,
+    Guid ActorId,
+    string? ActorName,
+    string? ActorEmail,
+    string Action,
+    Guid TargetId,
+    string TargetType,
+    Guid InstitutionId,
+    string Details,
+    DateTimeOffset CreatedAt);
+
+public sealed record AdminAuditLogPageResponse(
+    int Page,
+    int PageSize,
+    int TotalCount,
+    IReadOnlyCollection<AdminAuditLogResponse> Items);
 
 public sealed record AdminContentAudienceResponse(
     Guid InstitutionId,
@@ -51,7 +120,9 @@ public sealed record AdminModerationContentResponse(
     Guid AuthorId,
     string AuthorEmail,
     string AuthorName,
-    IReadOnlyCollection<AdminContentAudienceResponse> Audiences);
+    IReadOnlyCollection<AdminContentAudienceResponse> Audiences,
+    int UniqueReachCount = 0,
+    int NotificationOpenCount = 0);
 
 public sealed record AdminModerationContentPageResponse(
     int Page,

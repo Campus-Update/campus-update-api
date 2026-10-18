@@ -81,6 +81,18 @@ SuperAdmins use `GET /api/v1/admin/analytics?days=30` (1?365). `totals` includes
 
 DAU counts distinct users with registration/login/refresh/feed activity since midnight UTC. `activeUsers` counts enabled accounts and is distinct from DAU. `activePosts` counts all currently Published content; `publishedContent` counts publications in the requested period. Views count each authenticated student/staff user once per content item, including concurrent requests.
 
+## SuperAdmin portal data
+
+All routes below require a SuperAdmin bearer token. Lists use `{page, pageSize, totalCount, items}` with a default page size of 20 and a maximum of 100.
+
+`GET /api/v1/admin/schools?search=osun&isActive=true&page=1&pageSize=20` lists active or inactive institutions. Each item includes school identity/status and `studentCount`, `staffCount`, `adminCount` (SchoolAdmin accounts), and `liveContentCount` (distinct published items targeted to the institution). Counts include inactive user accounts; use the user list's `isActive` filter for an active-only breakdown. `GET /api/v1/admin/schools/{id}` returns the same summary plus the school's faculty, department, programme and academic-level hierarchy. Missing school IDs return 404.
+
+`GET /api/v1/admin/users?institutionId=<UUID>&role=Student&isActive=true&search=ada&page=1&pageSize=20` lists users with their role, institution name/ID, activation state, creation time and `lastActiveAt`. Filters are optional. `lastActiveAt` is the latest recorded authentication/feed activity or first content-detail view; it is null if the account has no recorded activity. `PATCH /api/v1/admin/users/{id}` remains the access-update operation.
+
+`GET /api/v1/admin/audit?institutionId=<UUID>&actorId=<UUID>&targetId=<UUID>&action=Content&from=<ISO-8601>&to=<ISO-8601>&page=1&pageSize=20` returns newest-first entries with actor ID/name/email, action, target ID/type, institution, details and timestamp. `from` is inclusive and `to` is exclusive. The audit log currently records school creation, school-admin provisioning, account role/activation changes, and content creation, editing, status changes and archiving.
+
+Content responses include `uniqueReachCount` and `notificationOpenCount`. `uniqueReachCount` counts distinct student/staff accounts with a recorded content-detail view; each account is counted once per content item. `notificationOpenCount` counts opened notification records for that content. These are separate signals: feed-card appearances are not tracked as impressions, and opening a push notification does not by itself mean the user opened the content detail page.
+
 Auth and feed operations save durable activity events asynchronously. The scheduled job aggregates those events into `usageCounters` (registrations, session activity events, and feed fetches by day/institution). Counters can lag by one scheduler interval. A session activity event is a login, refresh or feed fetch, not a distinct person; DAU is the distinct-person measure.
 
 ## Deployment and verification
