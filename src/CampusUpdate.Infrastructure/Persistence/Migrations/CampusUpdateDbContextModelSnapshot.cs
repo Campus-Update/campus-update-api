@@ -733,6 +733,18 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("PasswordResetAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PasswordResetCodeHash")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("PasswordResetExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("PasswordResetRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("ProgrammeId")
                         .HasColumnType("uuid");
 

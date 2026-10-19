@@ -1,5 +1,8 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using CampusUpdate.Api.Authentication;
+using CampusUpdate.Api.Auth;
 using CampusUpdate.Api.Contracts;
 using CampusUpdate.Domain.Users;
 using CampusUpdate.Infrastructure.Persistence;
@@ -17,7 +20,9 @@ public sealed class AuthController(
     CampusUpdateDbContext db,
     IPasswordHasher<AppUser> passwordHasher,
     ITokenService tokenService,
-    Microsoft.Extensions.Options.IOptions<JwtOptions> jwtOptions) : ControllerBase
+    Microsoft.Extensions.Options.IOptions<JwtOptions> jwtOptions,
+    IEmailSender emailSender,
+    ILogger<AuthController> logger) : ControllerBase
 {
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
@@ -70,6 +75,64 @@ public sealed class AuthController(
         user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(jwtOptions.Value.RefreshTokenDays);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(new AuthResponse(user.Id, pair.AccessToken, pair.RefreshToken, pair.ExpiresAt));
+    }
+
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordRequest request, CancellationToken cancellationToken)
+    {
+        const string responseMessage = "If an active account exists for that email, a password reset code has been sent.";
+        var email = request.Email.Trim().ToLowerInvariant();
+        var user = await db.Users.SingleOrDefaultAsync(x => x.Email == email && x.IsActive, cancellationToken);
+        if (user is null) return Ok(new { message = responseMessage });
+
+        var now = DateTimeOffset.UtcNow;
+        if (user.PasswordResetRequestedAt > now.AddMinutes(-1))
+            return Ok(new { message = responseMessage });
+
+        var code = RandomNumberGenerator.GetInt32(10_000_000, 100_000_000).ToString();
+        user.PasswordResetCodeHash = HashResetCode(code);
+        user.PasswordResetExpiresAt = now.AddMinutes(15);
+        user.PasswordResetRequestedAt = now;
+        user.PasswordResetAttempts = 0;
+        await db.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await emailSender.SendPasswordResetAsync(user.Email, code, cancellationToken);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
+        {
+            logger.LogWarning(ex, "Password reset email delivery failed.");
+        }
+        return Ok(new { message = responseMessage });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword(ResetPasswordRequest request, CancellationToken cancellationToken)
+    {
+        var email = request.Email.Trim().ToLowerInvariant();
+        var user = await db.Users.SingleOrDefaultAsync(x => x.Email == email && x.IsActive, cancellationToken);
+        if (user is null || user.PasswordResetCodeHash is null || user.PasswordResetExpiresAt <= DateTimeOffset.UtcNow || user.PasswordResetAttempts >= 5)
+            return BadRequest(new ProblemDetails { Title = "The password reset code is invalid or expired." });
+
+        user.PasswordResetAttempts++;
+        var suppliedHash = HashResetCode(request.Code);
+        var validCode = CryptographicOperations.FixedTimeEquals(
+            Convert.FromHexString(user.PasswordResetCodeHash), Convert.FromHexString(suppliedHash));
+        if (!validCode)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            return BadRequest(new ProblemDetails { Title = "The password reset code is invalid or expired." });
+        }
+
+        user.PasswordHash = passwordHasher.HashPassword(user, request.NewPassword);
+        user.PasswordResetCodeHash = null;
+        user.PasswordResetExpiresAt = null;
+        user.PasswordResetAttempts = 0;
+        user.RefreshTokenHash = null;
+        user.RefreshTokenExpiresAt = null;
+        await db.SaveChangesAsync(cancellationToken);
+        return NoContent();
     }
 
     [HttpPost("refresh")]
@@ -246,6 +309,9 @@ public sealed class AuthController(
         user.FeedPreference.AdvertisementsEnabled,
         user.FeedPreference.PushNotificationsEnabled,
         user.FeedPreference.AllCampusFeed);
+
+    private static string HashResetCode(string code) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
 
     private async Task<bool> AcademicSelectionIsValid(RegisterRequest request, CancellationToken cancellationToken)
         => await AcademicSelectionIsValid(

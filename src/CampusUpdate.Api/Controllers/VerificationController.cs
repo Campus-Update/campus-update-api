@@ -10,7 +10,7 @@ using Microsoft.Extensions.Options;
 namespace CampusUpdate.Api.Controllers;
 
 [ApiController, Route("api/v1/auth/verification")]
-public sealed class VerificationController(CampusUpdateDbContext db, IOptions<EmailVerificationOptions> options, ILogger<VerificationController> logger, ResendEmailSender emailSender) : ControllerBase
+public sealed class VerificationController(CampusUpdateDbContext db, IOptions<EmailVerificationOptions> options, ILogger<VerificationController> logger, IEmailSender emailSender) : ControllerBase
 {
     [HttpPost("request")]
     public async Task<IActionResult> RequestCode(RequestVerificationRequest request, CancellationToken ct)

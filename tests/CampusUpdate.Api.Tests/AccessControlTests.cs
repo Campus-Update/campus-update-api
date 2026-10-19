@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Text;
 using CampusUpdate.Api.Authentication;
@@ -125,6 +126,106 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(PasswordVerificationResult.Success,
             verifyScope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>()
                 .VerifyHashedPassword(updatedUser, updatedUser.PasswordHash, "NewPassword1!"));
+    }
+
+    [Fact]
+    public async Task PasswordResetUsesGenericResponseAndConsumesCodeOnce()
+    {
+        var (userId, _) = _factory.AddUser(UserRole.Student);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var user = await db.Users.SingleAsync(x => x.Id == userId);
+            user.PasswordHash = scope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>()
+                .HashPassword(user, "OldPassword1!");
+            user.RefreshTokenHash = scope.ServiceProvider.GetRequiredService<ITokenService>().HashRefreshToken("old-refresh-token");
+            user.RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(1);
+            await db.SaveChangesAsync();
+        }
+
+        var userEmail = await GetEmail(userId);
+        var knownAccount = await _client.PostAsJsonAsync("/api/v1/auth/forgot-password", new ForgotPasswordRequest(userEmail));
+        var unknownAccount = await _client.PostAsJsonAsync("/api/v1/auth/forgot-password", new ForgotPasswordRequest("unknown@example.test"));
+        Assert.Equal(HttpStatusCode.OK, knownAccount.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, unknownAccount.StatusCode);
+        Assert.Equal(await knownAccount.Content.ReadAsStringAsync(), await unknownAccount.Content.ReadAsStringAsync());
+        var code = Assert.IsType<string>(_factory.EmailSender.LastPasswordResetCode);
+        Assert.Matches("^[0-9]{8}$", code);
+        Assert.Equal(1, _factory.EmailSender.PasswordResetSendCount);
+
+        var wrongCode = code == "00000000" ? "11111111" : "00000000";
+        var invalid = await _client.PostAsJsonAsync("/api/v1/auth/reset-password",
+            new ResetPasswordRequest(userEmail, wrongCode, "NewPassword2!"));
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        var reset = await _client.PostAsJsonAsync("/api/v1/auth/reset-password",
+            new ResetPasswordRequest(userEmail, code, "NewPassword2!"));
+        Assert.Equal(HttpStatusCode.NoContent, reset.StatusCode);
+        var reusedCode = await _client.PostAsJsonAsync("/api/v1/auth/reset-password",
+            new ResetPasswordRequest(userEmail, code, "AnotherPassword3!"));
+        Assert.Equal(HttpStatusCode.BadRequest, reusedCode.StatusCode);
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var resetUser = await verifyScope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>().Users
+            .SingleAsync(x => x.Id == userId);
+        Assert.Null(resetUser.RefreshTokenHash);
+        Assert.Null(resetUser.PasswordResetCodeHash);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsJsonAsync("/api/v1/auth/login",
+            new LoginRequest(userEmail, "OldPassword1!"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync("/api/v1/auth/login",
+            new LoginRequest(userEmail, "NewPassword2!"))).StatusCode);
+
+        async Task<string> GetEmail(Guid id)
+        {
+            using var scope = _factory.Services.CreateScope();
+            return await scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>().Users
+                .Where(x => x.Id == id).Select(x => x.Email).SingleAsync();
+        }
+    }
+
+    [Fact]
+    public async Task PasswordResetCodeExpiresAndStopsAfterFiveWrongAttempts()
+    {
+        var (userId, _) = _factory.AddUser(UserRole.Student);
+        var email = await GetEmail(userId);
+        await _client.PostAsJsonAsync("/api/v1/auth/forgot-password", new ForgotPasswordRequest(email));
+        var code = _factory.EmailSender.LastPasswordResetCode!;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var user = await db.Users.SingleAsync(x => x.Id == userId);
+            user.PasswordResetCodeHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
+            user.PasswordResetExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/auth/reset-password",
+            new ResetPasswordRequest(email, code, "NewPassword2!"))).StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var user = await db.Users.SingleAsync(x => x.Id == userId);
+            user.PasswordResetExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
+            user.PasswordResetAttempts = 0;
+            await db.SaveChangesAsync();
+        }
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var wrongCode = (attempt + 1).ToString("D8");
+            if (wrongCode == code)
+                wrongCode = ((int.Parse(code) + 1) % 100_000_000).ToString("D8");
+            Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/auth/reset-password",
+                new ResetPasswordRequest(email, wrongCode, "NewPassword2!"))).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/auth/reset-password",
+            new ResetPasswordRequest(email, code, "NewPassword2!"))).StatusCode);
+
+        async Task<string> GetEmail(Guid id)
+        {
+            using var scope = _factory.Services.CreateScope();
+            return await scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>().Users
+                .Where(x => x.Id == id).Select(x => x.Email).SingleAsync();
+        }
     }
 
     [Fact]
@@ -480,6 +581,50 @@ public sealed class AccessControlTests : IDisposable
             $"/api/v1/admin/audit?search=School%20A&administratorId={audit.Items.First().ActorId}&actionTag=Access", JsonOptions);
         Assert.NotNull(searchedAudit);
         Assert.Equal(2, searchedAudit.TotalCount);
+    }
+
+    [Fact]
+    public async Task SchoolAdminCanCreateEventSubmitForApprovalAndPublishToStudentFeed()
+    {
+        Login(UserRole.SchoolAdmin);
+        var startsAt = DateTimeOffset.UtcNow.AddDays(3);
+        var request = new CreateContentRequest(
+            "Computing Faculty Seminar", "Join the faculty seminar.", "A seminar for students.",
+            ContentType.Event, UrgencyLevel.Normal, SourceType.Official, "School A",
+            startsAt, startsAt.AddHours(2), "Main auditorium", "https://example.test/register",
+            null, null, [new AudienceRequest(_factory.SchoolId, null, null, null, null, TargetAudience.Students)], "Academic");
+
+        var invalidEvent = await _client.PostAsJsonAsync("/api/v1/content", request with { EventStartsAt = null });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidEvent.StatusCode);
+
+        var create = await _client.PostAsJsonAsync("/api/v1/content", request);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var created = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.NotNull(created);
+        Assert.Equal(ContentType.Event, created.Type);
+        Assert.Equal(ContentStatus.Draft, created.Status);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var saved = await db.ContentItems.Include(x => x.Audiences).SingleAsync(x => x.Id == created.Id);
+            Assert.Equal(startsAt, saved.EventStartsAt);
+            Assert.Equal(startsAt.AddHours(2), saved.EventEndsAt);
+            Assert.Equal("Main auditorium", saved.EventLocation);
+            Assert.Equal("https://example.test/register", saved.RegistrationUrl);
+            Assert.Equal(TargetAudience.Students, Assert.Single(saved.Audiences).TargetAudience);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await _client.PatchAsJsonAsync($"/api/v1/content/{created.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.PendingApproval))).StatusCode);
+        Login(UserRole.SuperAdmin);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PatchAsJsonAsync($"/api/v1/content/{created.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.Published))).StatusCode);
+
+        var (_, studentToken) = _factory.AddUser(UserRole.Student, _factory.SchoolId);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", studentToken);
+        var feed = await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/feed?type=Event", JsonOptions);
+        Assert.Contains(feed!, x => x.Id == created.Id && x.Status == ContentStatus.Published);
     }
 
     [Fact]
