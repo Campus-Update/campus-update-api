@@ -17,6 +17,11 @@ public sealed record RegisterRequest(
     string? MatriculationOrStaffNumber);
 
 public sealed record LoginRequest([EmailAddress] string Email, string Password);
+public sealed record ForgotPasswordRequest([Required, EmailAddress] string Email);
+public sealed record ResetPasswordRequest(
+    [Required, EmailAddress] string Email,
+    [Required, RegularExpression("^[0-9]{8}$")] string Code,
+    [Required, MinLength(8)] string NewPassword);
 public sealed record ChangePasswordRequest(
     [Required] string CurrentPassword,
     [Required, MinLength(8)] string NewPassword);

@@ -97,7 +97,7 @@ builder.Services.AddOptions<FcmOptions>().Bind(builder.Configuration.GetSection(
 builder.Services.AddSingleton<FirebasePushSender>();
 builder.Services.AddScoped<NotificationDispatcher>();
 builder.Services.AddScoped<UsageAggregator>();
-builder.Services.AddHttpClient<ResendEmailSender>(client =>
+builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>(client =>
 {
     client.BaseAddress = new Uri("https://api.resend.com");
     client.DefaultRequestHeaders.Add("Authorization", "Bearer " + builder.Configuration["Email:ApiKey"]);

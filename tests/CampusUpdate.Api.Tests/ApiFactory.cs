@@ -1,4 +1,5 @@
 using CampusUpdate.Api.Authentication;
+using CampusUpdate.Api.Auth;
 using CampusUpdate.Domain.Content;
 using CampusUpdate.Domain.Schools;
 using CampusUpdate.Domain.Users;
@@ -16,6 +17,7 @@ namespace CampusUpdate.Api.Tests;
 public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = Guid.NewGuid().ToString();
+    public TestEmailSender EmailSender { get; } = new();
     public Guid SchoolId { get; } = Guid.NewGuid();
     public Guid OtherSchoolId { get; } = Guid.NewGuid();
     public Guid ForeignFacultyId { get; } = Guid.NewGuid();
@@ -41,6 +43,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<CampusUpdateDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<CampusUpdateDbContext>>();
             services.AddDbContext<CampusUpdateDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+            services.RemoveAll<IEmailSender>();
+            services.AddSingleton<IEmailSender>(EmailSender);
             services.RemoveAll<CampusUpdate.Infrastructure.Media.IMediaStorage>();
             services.AddSingleton<CampusUpdate.Infrastructure.Media.IMediaStorage, TestMediaStorage>();
         });
@@ -163,6 +167,19 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         db.Users.Add(user);
         db.SaveChanges();
         return (user.Id, scope.ServiceProvider.GetRequiredService<ITokenService>().Create(user).AccessToken);
+    }
+}
+
+public sealed class TestEmailSender : IEmailSender
+{
+    public string? LastPasswordResetCode { get; private set; }
+    public int PasswordResetSendCount { get; private set; }
+    public Task SendVerificationAsync(string email, string code, CancellationToken ct) => Task.CompletedTask;
+    public Task SendPasswordResetAsync(string email, string code, CancellationToken ct)
+    {
+        LastPasswordResetCode = code;
+        PasswordResetSendCount++;
+        return Task.CompletedTask;
     }
 }
 

@@ -25,6 +25,10 @@ public sealed class AppUser : Entity
     public string? EmailVerificationCodeHash { get; set; }
     public DateTimeOffset? EmailVerificationExpiresAt { get; set; }
     public int EmailVerificationAttempts { get; set; }
+    public string? PasswordResetCodeHash { get; set; }
+    public DateTimeOffset? PasswordResetExpiresAt { get; set; }
+    public DateTimeOffset? PasswordResetRequestedAt { get; set; }
+    public int PasswordResetAttempts { get; set; }
     public Guid InstitutionId { get; set; }
     public Institution Institution { get; set; } = null!;
     public Guid? FacultyId { get; set; }
