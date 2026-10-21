@@ -26,12 +26,14 @@ public static class DependencyInjection
         services.AddSingleton<IAmazonS3>(sp =>
         {
             var b2 = sp.GetRequiredService<IOptions<B2Options>>().Value;
-            if (string.IsNullOrWhiteSpace(b2.Endpoint) || string.IsNullOrWhiteSpace(b2.BucketName) ||
-                string.IsNullOrWhiteSpace(b2.KeyId) || string.IsNullOrWhiteSpace(b2.ApplicationKey))
+            if (string.IsNullOrWhiteSpace(b2.BucketName) || string.IsNullOrWhiteSpace(b2.KeyId) ||
+                string.IsNullOrWhiteSpace(b2.ApplicationKey) || string.IsNullOrWhiteSpace(b2.Region))
                 throw new InvalidOperationException("B2 storage configuration is required.");
+
+            var endpoint = B2EndpointResolver.Resolve(b2.Endpoint, b2.Region);
             return new AmazonS3Client(b2.KeyId, b2.ApplicationKey, new AmazonS3Config
             {
-                ServiceURL = b2.Endpoint,
+                ServiceURL = endpoint,
                 ForcePathStyle = true,
                 AuthenticationRegion = b2.Region
             });

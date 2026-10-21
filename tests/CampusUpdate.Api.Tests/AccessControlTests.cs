@@ -330,6 +330,37 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
+    public async Task SchoolAdminCanUpdateDraftWithoutReplacingItsExistingAudienceRow()
+    {
+        Login(UserRole.SchoolAdmin);
+        var create = await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.SchoolId));
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var created = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.NotNull(created);
+
+        Guid originalAudienceId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            originalAudienceId = await db.ContentAudiences.Where(x => x.ContentItemId == created.Id)
+                .Select(x => x.Id).SingleAsync();
+        }
+
+        var update = new UpdateContentRequest(
+            "Updated news", "Updated body", "Updated summary", UrgencyLevel.Important, "School",
+            null, null, null, null, null, null,
+            [new AudienceRequest(_factory.SchoolId, null, null, null, null, TargetAudience.Students)], "Academics");
+        var response = await _client.PutAsJsonAsync($"/api/v1/content/{created.Id}", update);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+        var audience = await verifyDb.ContentAudiences.SingleAsync(x => x.ContentItemId == created.Id);
+        Assert.Equal(originalAudienceId, audience.Id);
+        Assert.Equal(TargetAudience.Students, audience.TargetAudience);
+    }
+
+    [Fact]
     public async Task SchoolAdminCannotReassignTheirInstitution()
     {
         Login(UserRole.SchoolAdmin);

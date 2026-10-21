@@ -12,7 +12,7 @@ namespace CampusUpdate.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/calendar")]
-public sealed class CalendarController(CampusUpdateDbContext db, CampusUpdate.Infrastructure.Media.IMediaStorage storage) : ControllerBase
+public sealed class CalendarController(CampusUpdateDbContext db, IServiceProvider services) : ControllerBase
 {
     [HttpGet]
     [HttpGet("latest")]
@@ -38,7 +38,10 @@ public sealed class CalendarController(CampusUpdateDbContext db, CampusUpdate.In
 
         if (calendar is null) return NotFound(new ProblemDetails { Title = "No active academic calendar is available.", Detail = "Your institution has not published an academic calendar yet." });
         if (calendar.ImageUrl.StartsWith("calendar/", StringComparison.Ordinal))
+        {
+            var storage = services.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
             calendar = calendar with { ImageUrl = await storage.CreateDownloadUrlAsync(calendar.ImageUrl, TimeSpan.FromMinutes(15), cancellationToken) };
+        }
         if (calendar.ImageUrl.StartsWith("/api/v1/mock/", StringComparison.Ordinal) && HttpContext.RequestServices.GetRequiredService<IWebHostEnvironment>().IsDevelopment())
             calendar = calendar with { ImageUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}{calendar.ImageUrl}" };
         return Ok(calendar);
@@ -130,6 +133,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, CampusUpdate.In
         var isWebp = headerLength == 12 && System.Text.Encoding.ASCII.GetString(header, 0, 4) == "RIFF" && System.Text.Encoding.ASCII.GetString(header, 8, 4) == "WEBP";
         if (!isPng && !isJpeg && !isWebp)
             return BadRequest(new ProblemDetails { Title = "The uploaded file is not a PNG, JPEG or WebP image." });
+        var storage = services.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
         input.Position = 0;
         ImageMagick.MagickImage image;
         try
