@@ -104,7 +104,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         item.Urgency = request.Urgency; item.SourceName = request.SourceName.Trim(); item.EventStartsAt = request.EventStartsAt;
         item.EventEndsAt = request.EventEndsAt; item.EventLocation = request.EventLocation?.Trim(); item.RegistrationUrl = request.RegistrationUrl;
         item.SponsorName = request.SponsorName?.Trim(); item.TargetUrl = request.TargetUrl;
-        db.ContentAudiences.RemoveRange(item.Audiences); item.Audiences = request.Audiences.Select(ToAudience).ToList();
+        ReplaceAudiences(item, request.Audiences);
         Audit("ContentUpdated", item.Id, request.Audiences.First().InstitutionId,
             new { targetType = "Content", actionTag = ContentActionTag(item.Type), item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
         await db.SaveChangesAsync(cancellationToken);
@@ -284,6 +284,33 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             ? await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.IsActive, cancellationToken) : null;
 
     private static ContentAudience ToAudience(AudienceRequest a) => new() { TargetAudience = a.TargetAudience, InstitutionId = a.InstitutionId, FacultyId = a.FacultyId, DepartmentId = a.DepartmentId, ProgrammeId = a.ProgrammeId, AcademicLevelId = a.AcademicLevelId };
+    private void ReplaceAudiences(ContentItem item, IReadOnlyCollection<AudienceRequest> requested)
+    {
+        var unmatched = item.Audiences.ToList();
+        foreach (var audience in requested)
+        {
+            var existing = unmatched.FirstOrDefault(x =>
+                x.InstitutionId == audience.InstitutionId &&
+                x.FacultyId == audience.FacultyId &&
+                x.DepartmentId == audience.DepartmentId &&
+                x.ProgrammeId == audience.ProgrammeId &&
+                x.AcademicLevelId == audience.AcademicLevelId);
+            if (existing is null)
+            {
+                item.Audiences.Add(ToAudience(audience));
+                continue;
+            }
+
+            existing.TargetAudience = audience.TargetAudience;
+            unmatched.Remove(existing);
+        }
+
+        foreach (var removed in unmatched)
+        {
+            item.Audiences.Remove(removed);
+            db.ContentAudiences.Remove(removed);
+        }
+    }
     private static string ContentActionTag(ContentType type) => type switch
     {
         ContentType.Advertisement => "Advertisement",
