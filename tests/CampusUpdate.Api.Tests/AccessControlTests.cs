@@ -580,7 +580,9 @@ public sealed class AccessControlTests : IDisposable
             var foreignFaculty = await db.Faculties.SingleAsync(x => x.Id == _factory.ForeignFacultyId);
             var foreignDepartment = new CampusUpdate.Domain.Schools.Department
             {
-                Name = "Foreign Department", Code = "FD", FacultyId = foreignFaculty.Id
+                Name = "Foreign Department",
+                Code = "FD",
+                FacultyId = foreignFaculty.Id
             };
             db.Departments.Add(foreignDepartment);
             db.ContentViews.Add(new CampusUpdate.Domain.Notifications.ContentView
