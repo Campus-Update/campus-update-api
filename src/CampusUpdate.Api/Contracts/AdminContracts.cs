@@ -46,6 +46,41 @@ public sealed record AdminSchoolDetailResponse(
     int LiveContentCount,
     IReadOnlyCollection<FacultyResponse> Faculties);
 
+public sealed record InstitutionStatsResponse(
+    int TotalInstitutions,
+    int ActiveInstitutions,
+    int PendingVerificationInstitutions,
+    int StudentsReached);
+
+public sealed record DepartmentAdminResponse(
+    Guid Id,
+    string Name,
+    string Code,
+    Guid FacultyId,
+    string FacultyName,
+    Guid InstitutionId,
+    string InstitutionName,
+    IReadOnlyCollection<ProgrammeResponse> Programmes);
+
+public sealed record AdminPlatformSettingsRequest(
+    [Required, MaxLength(200)] string PlatformName,
+    [EmailAddress, MaxLength(320)] string? SupportEmail,
+    [Phone, MaxLength(50)] string? SupportPhone,
+    bool MaintenanceMode,
+    [Range(typeof(decimal), "0", "9999999999")] decimal ListingFee,
+    [Range(1, 365)] int InvoiceDays,
+    bool HoldEventsUntilPayment);
+
+public sealed record AdminPlatformSettingsResponse(
+    string PlatformName,
+    string? SupportEmail,
+    string? SupportPhone,
+    bool MaintenanceMode,
+    decimal ListingFee,
+    int InvoiceDays,
+    bool HoldEventsUntilPayment,
+    DateTimeOffset UpdatedAt);
+
 public sealed record CreateSchoolAdminRequest(
     [Required, EmailAddress] string Email,
     [Required, MinLength(12)] string Password,
@@ -128,7 +163,8 @@ public sealed record AdminModerationContentResponse(
     IReadOnlyCollection<AdminContentAudienceResponse> Audiences,
     int UniqueReachCount = 0,
     int NotificationOpenCount = 0,
-    int Views = 0);
+    int Views = 0,
+    int ReachCount = 0);
 
 public sealed record AdminModerationContentPageResponse(
     int Page,

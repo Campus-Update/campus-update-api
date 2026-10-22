@@ -283,6 +283,38 @@ public sealed class AuthController(
         return Ok(ToProfileResponse(user));
     }
 
+    [Authorize(Roles = nameof(UserRole.SuperAdmin))]
+    [HttpGet("notification-preferences")]
+    public async Task<ActionResult<NotificationPreferencesResponse>> GetNotificationPreferences(
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        return Ok(ToNotificationPreferencesResponse(user));
+    }
+
+    [Authorize(Roles = nameof(UserRole.SuperAdmin))]
+    [HttpPut("notification-preferences")]
+    public async Task<ActionResult<NotificationPreferencesResponse>> UpdateNotificationPreferences(
+        NotificationPreferencesRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.IsDefined(request.SummaryCadence))
+            return BadRequest(new ProblemDetails { Title = "SummaryCadence must be Immediate, Daily, Weekly, or Never." });
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        user.FeedPreference.EmailNotificationsEnabled = request.EmailNotificationsEnabled;
+        user.FeedPreference.PushNotificationsEnabled = request.PushNotificationsEnabled;
+        user.FeedPreference.SummaryCadence = request.SummaryCadence;
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(ToNotificationPreferencesResponse(user));
+    }
+
+    private static NotificationPreferencesResponse ToNotificationPreferencesResponse(AppUser user) => new(
+        user.FeedPreference.EmailNotificationsEnabled,
+        user.FeedPreference.PushNotificationsEnabled,
+        user.FeedPreference.SummaryCadence);
+
     private async Task<AppUser?> GetCurrentUser(CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))

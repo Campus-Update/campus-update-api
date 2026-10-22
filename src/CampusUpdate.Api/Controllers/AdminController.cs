@@ -17,6 +17,53 @@ namespace CampusUpdate.Api.Controllers;
 [Route("api/v1/admin")]
 public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<AppUser> hasher) : ControllerBase
 {
+    [HttpGet("platform-settings")]
+    public async Task<ActionResult<AdminPlatformSettingsResponse>> GetPlatformSettings(CancellationToken cancellationToken)
+    {
+        var settings = await db.PlatformSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Key == PlatformSettings.SingletonKey, cancellationToken)
+            ?? new PlatformSettings();
+        return Ok(ToPlatformSettingsResponse(settings));
+    }
+
+    [HttpPut("platform-settings")]
+    public async Task<ActionResult<AdminPlatformSettingsResponse>> UpdatePlatformSettings(
+        AdminPlatformSettingsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var settings = await db.PlatformSettings
+            .SingleOrDefaultAsync(x => x.Key == PlatformSettings.SingletonKey, cancellationToken);
+        if (settings is null)
+        {
+            settings = new PlatformSettings();
+            db.PlatformSettings.Add(settings);
+        }
+
+        settings.PlatformName = request.PlatformName.Trim();
+        settings.SupportEmail = request.SupportEmail?.Trim();
+        settings.SupportPhone = request.SupportPhone?.Trim();
+        settings.MaintenanceMode = request.MaintenanceMode;
+        settings.ListingFee = request.ListingFee;
+        settings.InvoiceDays = request.InvoiceDays;
+        settings.HoldEventsUntilPayment = request.HoldEventsUntilPayment;
+
+        var actorId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var institutionId = await db.Users.AsNoTracking().Where(x => x.Id == actorId)
+            .Select(x => x.InstitutionId).SingleAsync(cancellationToken);
+        Audit("PlatformSettingsUpdated", settings.Id, institutionId, new
+        {
+            settings.PlatformName,
+            settings.SupportEmail,
+            settings.SupportPhone,
+            settings.MaintenanceMode,
+            settings.ListingFee,
+            settings.InvoiceDays,
+            settings.HoldEventsUntilPayment
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(ToPlatformSettingsResponse(settings));
+    }
+
     [HttpGet("schools")]
     public async Task<ActionResult<AdminSchoolPageResponse>> GetSchools(
         [FromQuery] string? search,
@@ -273,7 +320,7 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
                     a.AcademicLevelId,
                     a.TargetAudience)).ToArray(),
                 uniqueReach.GetValueOrDefault(x.Id), notificationOpens.GetValueOrDefault(x.Id),
-                uniqueReach.GetValueOrDefault(x.Id))).ToArray()));
+                uniqueReach.GetValueOrDefault(x.Id), uniqueReach.GetValueOrDefault(x.Id))).ToArray()));
     }
 
     [HttpPost("schools")]
@@ -343,6 +390,10 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
     }
 
     private static AdminUserResponse ToResponse(AppUser user) => new(user.Id, user.Email, user.Role, user.InstitutionId, user.IsActive);
+
+    private static AdminPlatformSettingsResponse ToPlatformSettingsResponse(PlatformSettings settings) => new(
+        settings.PlatformName, settings.SupportEmail, settings.SupportPhone, settings.MaintenanceMode,
+        settings.ListingFee, settings.InvoiceDays, settings.HoldEventsUntilPayment, settings.UpdatedAt);
 
     private static DateTimeOffset? Max(DateTimeOffset? first, DateTimeOffset? second) =>
         first is null ? second : second is null ? first : first > second ? first : second;

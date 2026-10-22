@@ -48,6 +48,14 @@ public sealed record AcademicSettingsRequest(
     bool AdvertisementsEnabled,
     bool PushNotificationsEnabled,
     bool AllCampusFeed = false);
+public sealed record NotificationPreferencesRequest(
+    bool EmailNotificationsEnabled,
+    bool PushNotificationsEnabled,
+    NotificationSummaryCadence SummaryCadence);
+public sealed record NotificationPreferencesResponse(
+    bool EmailNotificationsEnabled,
+    bool PushNotificationsEnabled,
+    NotificationSummaryCadence SummaryCadence);
 public sealed record UserProfileResponse(
     Guid Id,
     string Email,
