@@ -11,6 +11,7 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
     : DbContext(options)
 {
     public DbSet<Institution> Institutions => Set<Institution>();
+    public DbSet<PlatformSettings> PlatformSettings => Set<PlatformSettings>();
     public DbSet<Faculty> Faculties => Set<Faculty>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Programme> Programmes => Set<Programme>();
@@ -55,6 +56,15 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
         ConfigureUsers(modelBuilder);
         ConfigureContent(modelBuilder);
         ConfigureNotifications(modelBuilder);
+        modelBuilder.Entity<PlatformSettings>(entity =>
+        {
+            entity.Property(x => x.Key).HasMaxLength(32);
+            entity.Property(x => x.PlatformName).HasMaxLength(200);
+            entity.Property(x => x.SupportEmail).HasMaxLength(320);
+            entity.Property(x => x.SupportPhone).HasMaxLength(50);
+            entity.Property(x => x.ListingFee).HasPrecision(12, 2);
+            entity.HasIndex(x => x.Key).IsUnique();
+        });
         modelBuilder.Entity<AuditLog>(entity =>
         {
             entity.Property(x => x.Action).HasMaxLength(100);
@@ -144,6 +154,9 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
             .WithOne(x => x.FeedPreference)
             .HasForeignKey<FeedPreference>(x => x.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<FeedPreference>().Property(x => x.EmailNotificationsEnabled).HasDefaultValue(true);
+        modelBuilder.Entity<FeedPreference>().Property(x => x.SummaryCadence)
+            .HasConversion<string>().HasMaxLength(20).HasDefaultValue(NotificationSummaryCadence.Immediate);
     }
 
     private static void ConfigureContent(ModelBuilder modelBuilder)

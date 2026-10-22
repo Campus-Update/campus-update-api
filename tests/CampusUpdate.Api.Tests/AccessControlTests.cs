@@ -276,6 +276,7 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(ContentType.Event, eventItem.Type);
         Assert.Equal(1, eventItem.UniqueReachCount);
         Assert.Equal(1, eventItem.Views);
+        Assert.Equal(1, eventItem.ReachCount);
 
         var searchResponse = await _client.GetAsync($"/api/v1/admin/content/pending?institutionId={_factory.SchoolId}&search=Pending%20summary");
         var search = await searchResponse.Content.ReadFromJsonAsync<AdminModerationContentPageResponse>(JsonOptions);
@@ -504,6 +505,121 @@ public sealed class AccessControlTests : IDisposable
             Assert.DoesNotContain("test-password", log.Details);
         });
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/content/{_factory.DraftId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task SuperAdminCanReadAndUpdatePlatformSettings()
+    {
+        Login(UserRole.SuperAdmin);
+        var defaults = await _client.GetFromJsonAsync<AdminPlatformSettingsResponse>("/api/v1/admin/platform-settings", JsonOptions);
+        Assert.NotNull(defaults);
+        Assert.Equal("Campus Update", defaults.PlatformName);
+
+        var request = new AdminPlatformSettingsRequest("Campus Update", "support@campus.test", "+2348000000000",
+            true, 2500m, 30, true);
+        var update = await _client.PutAsJsonAsync("/api/v1/admin/platform-settings", request);
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var saved = await update.Content.ReadFromJsonAsync<AdminPlatformSettingsResponse>(JsonOptions);
+        Assert.NotNull(saved);
+        Assert.Equal("support@campus.test", saved.SupportEmail);
+        Assert.True(saved.MaintenanceMode);
+        Assert.Equal(2500m, saved.ListingFee);
+        Assert.Equal(30, saved.InvoiceDays);
+        Assert.True(saved.HoldEventsUntilPayment);
+
+        var persisted = await _client.GetFromJsonAsync<AdminPlatformSettingsResponse>("/api/v1/admin/platform-settings", JsonOptions);
+        Assert.Equal(saved, persisted);
+        Login(UserRole.Student);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/admin/platform-settings")).StatusCode);
+    }
+
+    [Fact]
+    public async Task SuperAdminCanManageTheirNotificationPreferences()
+    {
+        Login(UserRole.SuperAdmin);
+        var initial = await _client.GetFromJsonAsync<NotificationPreferencesResponse>("/api/v1/auth/notification-preferences", JsonOptions);
+        Assert.NotNull(initial);
+        Assert.Equal(NotificationSummaryCadence.Immediate, initial.SummaryCadence);
+
+        var request = new NotificationPreferencesRequest(false, true, NotificationSummaryCadence.Weekly);
+        var response = await _client.PutAsJsonAsync("/api/v1/auth/notification-preferences", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var saved = await response.Content.ReadFromJsonAsync<NotificationPreferencesResponse>(JsonOptions);
+        Assert.Equal(request.EmailNotificationsEnabled, saved!.EmailNotificationsEnabled);
+        Assert.Equal(request.SummaryCadence, saved.SummaryCadence);
+        Login(UserRole.Student);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync("/api/v1/auth/notification-preferences")).StatusCode);
+    }
+
+    [Fact]
+    public async Task InstitutionStatsAndDepartmentRoutesReturnScopedData()
+    {
+        var (studentId, _) = _factory.AddUser(UserRole.Student);
+        Guid departmentId;
+        Guid foreignDepartmentId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var otherInstitution = await db.Institutions.SingleAsync(x => x.Id == _factory.OtherSchoolId);
+            otherInstitution.IsActive = false;
+            var faculty = await db.Faculties.FirstAsync(x => x.InstitutionId == _factory.SchoolId);
+            var seededDepartment = new CampusUpdate.Domain.Schools.Department
+            {
+                Name = "Computer Science",
+                Code = "CSC",
+                FacultyId = faculty.Id,
+                Programmes = [new CampusUpdate.Domain.Schools.Programme
+                {
+                    Name = "BSc Computer Science",
+                    Code = "BSC-CS",
+                    Levels = [new CampusUpdate.Domain.Schools.AcademicLevel { Name = "100L", SortOrder = 100 }]
+                }]
+            };
+            db.Departments.Add(seededDepartment);
+            var foreignFaculty = await db.Faculties.SingleAsync(x => x.Id == _factory.ForeignFacultyId);
+            var foreignDepartment = new CampusUpdate.Domain.Schools.Department
+            {
+                Name = "Foreign Department",
+                Code = "FD",
+                FacultyId = foreignFaculty.Id
+            };
+            db.Departments.Add(foreignDepartment);
+            db.ContentViews.Add(new CampusUpdate.Domain.Notifications.ContentView
+            {
+                UserId = studentId,
+                ContentItemId = _factory.PublishedId,
+                InstitutionId = _factory.SchoolId
+            });
+            await db.SaveChangesAsync();
+            departmentId = seededDepartment.Id;
+            foreignDepartmentId = foreignDepartment.Id;
+        }
+
+        Login(UserRole.SuperAdmin);
+        var stats = await _client.GetFromJsonAsync<InstitutionStatsResponse>("/api/v1/institution/stats", JsonOptions);
+        Assert.NotNull(stats);
+        Assert.Equal(2, stats.TotalInstitutions);
+        Assert.Equal(1, stats.ActiveInstitutions);
+        Assert.Equal(1, stats.PendingVerificationInstitutions);
+        Assert.Equal(1, stats.StudentsReached);
+
+        var departments = await _client.GetFromJsonAsync<DepartmentAdminResponse[]>(
+            $"/api/v1/departments?institutionId={_factory.SchoolId}", JsonOptions);
+        var department = Assert.Single(departments!);
+        Assert.Equal(departmentId, department.Id);
+        Assert.Equal("Computer Science", department.Name);
+        Assert.Equal("School A", department.InstitutionName);
+        Assert.Equal("BSc Computer Science", Assert.Single(department.Programmes).Name);
+        var detail = await _client.GetFromJsonAsync<DepartmentAdminResponse>($"/api/v1/departments/{departmentId}", JsonOptions);
+        Assert.Equal(departmentId, detail!.Id);
+
+        Login(UserRole.SchoolAdmin);
+        Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/departments?institutionId={_factory.SchoolId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync($"/api/v1/departments?institutionId={_factory.OtherSchoolId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await _client.GetAsync($"/api/v1/departments/{foreignDepartmentId}")).StatusCode);
     }
 
     [Fact]

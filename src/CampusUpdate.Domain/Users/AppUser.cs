@@ -11,6 +11,14 @@ public enum UserRole
     SuperAdmin
 }
 
+public enum NotificationSummaryCadence
+{
+    Immediate,
+    Daily,
+    Weekly,
+    Never
+}
+
 public sealed class AppUser : Entity
 {
     public required string Email { get; set; }
@@ -54,4 +62,6 @@ public sealed class FeedPreference : Entity
     public bool EventsEnabled { get; set; } = true;
     public bool AdvertisementsEnabled { get; set; } = true;
     public bool PushNotificationsEnabled { get; set; } = true;
+    public bool EmailNotificationsEnabled { get; set; } = true;
+    public NotificationSummaryCadence SummaryCadence { get; set; } = NotificationSummaryCadence.Immediate;
 }
