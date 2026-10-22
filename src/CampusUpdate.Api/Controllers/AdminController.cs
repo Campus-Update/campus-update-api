@@ -272,7 +272,8 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
                     a.ProgrammeId,
                     a.AcademicLevelId,
                     a.TargetAudience)).ToArray(),
-                uniqueReach.GetValueOrDefault(x.Id), notificationOpens.GetValueOrDefault(x.Id))).ToArray()));
+                uniqueReach.GetValueOrDefault(x.Id), notificationOpens.GetValueOrDefault(x.Id),
+                uniqueReach.GetValueOrDefault(x.Id))).ToArray()));
     }
 
     [HttpPost("schools")]
