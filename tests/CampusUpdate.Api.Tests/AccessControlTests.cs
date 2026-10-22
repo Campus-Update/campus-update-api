@@ -243,6 +243,18 @@ public sealed class AccessControlTests : IDisposable
     public async Task SuperAdminCanListPendingContentWithFiltersAndPagination()
     {
         Login(UserRole.SuperAdmin);
+        var (viewerId, _) = _factory.AddUser(UserRole.Student);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            db.ContentViews.Add(new CampusUpdate.Domain.Notifications.ContentView
+            {
+                UserId = viewerId,
+                ContentItemId = _factory.PendingEventId,
+                InstitutionId = _factory.SchoolId
+            });
+            await db.SaveChangesAsync();
+        }
 
         var response = await _client.GetAsync("/api/v1/admin/content/pending?page=1&pageSize=1");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -262,6 +274,8 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(_factory.PendingEventId, eventItem.Id);
         Assert.Equal("Main auditorium", eventItem.EventLocation);
         Assert.Equal(ContentType.Event, eventItem.Type);
+        Assert.Equal(1, eventItem.UniqueReachCount);
+        Assert.Equal(1, eventItem.Views);
 
         var searchResponse = await _client.GetAsync($"/api/v1/admin/content/pending?institutionId={_factory.SchoolId}&search=Pending%20summary");
         var search = await searchResponse.Content.ReadFromJsonAsync<AdminModerationContentPageResponse>(JsonOptions);
@@ -327,6 +341,37 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/calendar",
             new CreateAcademicCalendarRequest(_factory.OtherSchoolId, "Calendar", "2026/2027", "https://example.com/calendar.png", DateTimeOffset.UtcNow))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.SchoolId))).StatusCode);
+    }
+
+    [Fact]
+    public async Task SchoolAdminContentListIncludesOwnUnpublishedItemsAndResponseDetails()
+    {
+        Login(UserRole.SchoolAdmin);
+        var startsAt = DateTimeOffset.UtcNow.AddDays(3);
+        var endsAt = startsAt.AddHours(2);
+        var eventRequest = new CreateContentRequest("Campus event", "Event details", "Event summary", ContentType.Event,
+            UrgencyLevel.Normal, SourceType.Official, "Osun State University", startsAt, endsAt, "Main hall",
+            "https://example.test/register", null, null,
+            [new AudienceRequest(_factory.SchoolId, null, null, null, null)], "Events");
+        var createdResponse = await _client.PostAsJsonAsync("/api/v1/content", eventRequest);
+        Assert.Equal(HttpStatusCode.Created, createdResponse.StatusCode);
+        var created = await createdResponse.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.NotNull(created);
+        Assert.NotNull(created.CreatedAt);
+        Assert.NotNull(created.UpdatedAt);
+        Assert.Equal(startsAt, created.EventStartsAt);
+        Assert.Equal(endsAt, created.EventEndsAt);
+        Assert.Equal("Main hall", created.EventLocation);
+        Assert.Equal("https://example.test/register", created.RegistrationUrl);
+
+        var allItems = await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/content", JsonOptions);
+        Assert.Contains(allItems!, x => x.Id == created.Id && x.Status == ContentStatus.Draft);
+        Assert.Contains(allItems!, x => x.Id == _factory.PendingApprovalId);
+        Assert.DoesNotContain(allItems!, x => x.Id == _factory.ForeignPendingApprovalId);
+
+        var drafts = await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/content?status=Draft", JsonOptions);
+        Assert.Contains(drafts!, x => x.Id == created.Id);
+        Assert.DoesNotContain(drafts!, x => x.Status != ContentStatus.Draft);
     }
 
     [Fact]

@@ -58,4 +58,13 @@ public sealed record ContentResponse(
     string? Category = null,
     int UniqueReachCount = 0,
     int NotificationOpenCount = 0,
-    int Views = 0);
+    int Views = 0,
+    DateTimeOffset? EventStartsAt = null,
+    DateTimeOffset? EventEndsAt = null,
+    string? EventLocation = null,
+    string? RegistrationUrl = null,
+    string? SponsorName = null,
+    string? TargetUrl = null,
+    DateTimeOffset? CreatedAt = null,
+    DateTimeOffset? UpdatedAt = null,
+    string? ImageUrl = null);

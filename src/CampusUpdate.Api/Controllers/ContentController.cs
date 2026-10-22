@@ -26,6 +26,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         [FromQuery] Guid? academicLevelId,
         [FromQuery] string? search,
         [FromQuery] string? category = null,
+        [FromQuery] ContentStatus? status = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
@@ -40,6 +41,44 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             .SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
         if (user is null)
             return Unauthorized();
+        if (user.Role is UserRole.SchoolAdmin or UserRole.SuperAdmin)
+        {
+            if (facultyId.HasValue || departmentId.HasValue || academicLevelId.HasValue)
+                return BadRequest(new ProblemDetails { Title = "Academic profile filters are only available on the personalized feed." });
+
+            var managedQuery = db.ContentItems.AsNoTracking().AsQueryable();
+            if (user.Role == UserRole.SchoolAdmin)
+                managedQuery = managedQuery.Where(x => x.Audiences.Any(a => a.InstitutionId == user.InstitutionId));
+            if (status.HasValue)
+                managedQuery = managedQuery.Where(x => x.Status == status.Value);
+            if (type.HasValue)
+                managedQuery = managedQuery.Where(x => x.Type == type.Value);
+            if (!string.IsNullOrWhiteSpace(category))
+                managedQuery = managedQuery.Where(x => x.Category == category.Trim());
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var term = search.Trim();
+                managedQuery = managedQuery.Where(x => x.Title.Contains(term) || x.Body.Contains(term) ||
+                    (x.Summary != null && x.Summary.Contains(term)));
+            }
+
+            var managedItems = await managedQuery
+                .OrderByDescending(x => x.UpdatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(x => new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
+                    x.SourceName, x.PublishedAt, x.Category,
+                    db.ContentViews.Count(v => v.ContentItemId == x.Id),
+                    db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
+                    db.ContentViews.Count(v => v.ContentItemId == x.Id),
+                    x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
+                    x.CreatedAt, x.UpdatedAt, x.CoverImageUrl))
+                .ToListAsync(cancellationToken);
+            return Ok(managedItems);
+        }
+
+        if (status.HasValue && status != ContentStatus.Published)
+            return Forbid();
         if ((facultyId.HasValue && facultyId != user.FacultyId) ||
             (departmentId.HasValue && departmentId != user.DepartmentId) ||
             (academicLevelId.HasValue && academicLevelId != user.AcademicLevelId))
@@ -79,7 +118,9 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                 x.SourceName, x.PublishedAt, x.Category,
                 db.ContentViews.Count(v => v.ContentItemId == x.Id),
                 db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
-                db.ContentViews.Count(v => v.ContentItemId == x.Id)))
+                db.ContentViews.Count(v => v.ContentItemId == x.Id),
+                x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
+                x.CreatedAt, x.UpdatedAt, x.CoverImageUrl))
             .ToListAsync(cancellationToken);
         db.UserActivities.Add(new CampusUpdate.Domain.Notifications.UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "feed_fetch", OccurredAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(cancellationToken);
@@ -239,7 +280,9 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                 x.SourceName, x.PublishedAt, x.Category,
                 db.ContentViews.Count(v => v.ContentItemId == x.Id),
                 db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
-                db.ContentViews.Count(v => v.ContentItemId == x.Id)))
+                db.ContentViews.Count(v => v.ContentItemId == x.Id),
+                x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
+                x.CreatedAt, x.UpdatedAt, x.CoverImageUrl))
             .SingleOrDefaultAsync(cancellationToken);
         if (item is null) return NotFound();
         if (user.Role is UserRole.Student or UserRole.Staff)
@@ -322,7 +365,9 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         var uniqueReach = await db.ContentViews.CountAsync(v => v.ContentItemId == x.Id, cancellationToken);
         var notificationOpens = await db.UserNotifications.CountAsync(n => n.ContentItemId == x.Id && n.OpenedAt != null, cancellationToken);
         return new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
-            x.SourceName, x.PublishedAt, x.Category, uniqueReach, notificationOpens, uniqueReach);
+            x.SourceName, x.PublishedAt, x.Category, uniqueReach, notificationOpens, uniqueReach,
+            x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
+            x.CreatedAt, x.UpdatedAt, x.CoverImageUrl);
     }
 
     private void Audit(string action, Guid targetId, Guid institutionId, object details) => db.AuditLogs.Add(new AuditLog
