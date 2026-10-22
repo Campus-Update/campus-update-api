@@ -41,6 +41,8 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
         await storage.UploadAsync(stream, key, file.ContentType, file.Length, cancellationToken);
         var attachment = new ContentAttachment { ContentItemId = contentId, FileName = safeName, Url = key, ContentType = file.ContentType, SizeBytes = file.Length };
         db.ContentAttachments.Add(attachment);
+        if (file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            content.CoverImageUrl = key;
         await db.SaveChangesAsync(cancellationToken);
         var url = await storage.CreateDownloadUrlAsync(key, TimeSpan.FromMinutes(15), cancellationToken);
         return Created($"/api/v1/media/{attachment.Id}", new MediaUploadResponse(attachment.Id, safeName, file.ContentType, file.Length, url));

@@ -8,12 +8,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using CampusUpdate.Api.Notifications;
+using CampusUpdate.Infrastructure.Media;
 
 namespace CampusUpdate.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/content")]
-public sealed class ContentController(CampusUpdateDbContext db, NotificationDispatcher notifications) : ControllerBase
+public sealed class ContentController(CampusUpdateDbContext db, NotificationDispatcher notifications, IMediaStorage mediaStorage) : ControllerBase
 {
     [Authorize]
     [HttpGet]
@@ -74,7 +75,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                     x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
                     x.CreatedAt, x.UpdatedAt, x.CoverImageUrl))
                 .ToListAsync(cancellationToken);
-            return Ok(managedItems);
+            return Ok(await AddSignedImageUrlsAsync(managedItems, cancellationToken));
         }
 
         if (status.HasValue && status != ContentStatus.Published)
@@ -124,7 +125,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             .ToListAsync(cancellationToken);
         db.UserActivities.Add(new CampusUpdate.Domain.Notifications.UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "feed_fetch", OccurredAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(cancellationToken);
-        return Ok(items);
+        return Ok(await AddSignedImageUrlsAsync(items, cancellationToken));
     }
 
     [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
@@ -299,7 +300,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                 await db.SaveChangesAsync(cancellationToken);
             }
         }
-        return Ok(item);
+        return Ok(item with { ImageUrl = await SignImageUrlAsync(item.ImageUrl, cancellationToken) });
     }
 
     private async Task<bool> AudienceIsValid(AudienceRequest audience, CancellationToken cancellationToken)
@@ -364,11 +365,26 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
     {
         var uniqueReach = await db.ContentViews.CountAsync(v => v.ContentItemId == x.Id, cancellationToken);
         var notificationOpens = await db.UserNotifications.CountAsync(n => n.ContentItemId == x.Id && n.OpenedAt != null, cancellationToken);
-        return new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
+        var response = new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
             x.SourceName, x.PublishedAt, x.Category, uniqueReach, notificationOpens, uniqueReach,
             x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
             x.CreatedAt, x.UpdatedAt, x.CoverImageUrl);
+        return response with { ImageUrl = await SignImageUrlAsync(response.ImageUrl, cancellationToken) };
     }
+
+    private async Task<IReadOnlyCollection<ContentResponse>> AddSignedImageUrlsAsync(
+        IReadOnlyCollection<ContentResponse> items,
+        CancellationToken cancellationToken) =>
+        await Task.WhenAll(items.Select(async item =>
+            item with { ImageUrl = await SignImageUrlAsync(item.ImageUrl, cancellationToken) }));
+
+    private Task<string?> SignImageUrlAsync(string? imageUrl, CancellationToken cancellationToken) =>
+        !string.IsNullOrWhiteSpace(imageUrl) && imageUrl.StartsWith("content/", StringComparison.Ordinal)
+            ? SignStoredImageAsync(imageUrl, cancellationToken)
+            : Task.FromResult(imageUrl);
+
+    private async Task<string?> SignStoredImageAsync(string objectKey, CancellationToken cancellationToken) =>
+        await mediaStorage.CreateDownloadUrlAsync(objectKey, TimeSpan.FromMinutes(15), cancellationToken);
 
     private void Audit(string action, Guid targetId, Guid institutionId, object details) => db.AuditLogs.Add(new AuditLog
     {
