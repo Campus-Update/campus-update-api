@@ -125,6 +125,7 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
             entity.Property(x => x.Title).HasMaxLength(250);
             entity.Property(x => x.AcademicSession).HasMaxLength(50);
             entity.Property(x => x.ImageUrl).HasMaxLength(2048);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             entity.HasIndex(x => new { x.InstitutionId, x.IsOfficial, x.PublishedAt });
             entity.HasOne(x => x.Institution)
                 .WithMany(x => x.AcademicCalendars)

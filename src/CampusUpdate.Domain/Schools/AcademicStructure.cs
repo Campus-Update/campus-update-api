@@ -20,9 +20,16 @@ public sealed class AcademicCalendar : Entity
     public required string AcademicSession { get; set; }
     public required string ImageUrl { get; set; }
     public bool IsOfficial { get; set; } = true;
+    public AcademicCalendarStatus Status { get; set; } = AcademicCalendarStatus.Published;
     public DateTimeOffset PublishedAt { get; set; }
     public Guid InstitutionId { get; set; }
     public Institution Institution { get; set; } = null!;
+}
+
+public enum AcademicCalendarStatus
+{
+    Draft = 0,
+    Published = 1
 }
 
 public sealed class Faculty : Entity

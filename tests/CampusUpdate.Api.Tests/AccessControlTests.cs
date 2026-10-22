@@ -10,6 +10,7 @@ using System.Text;
 using CampusUpdate.Api.Authentication;
 using CampusUpdate.Api.Contracts;
 using CampusUpdate.Domain.Content;
+using CampusUpdate.Domain.Schools;
 using CampusUpdate.Domain.Users;
 using CampusUpdate.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -855,6 +856,39 @@ public sealed class AccessControlTests : IDisposable
         var response = await _client.GetAsync("/api/v1/calendar/current");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Contains("No active academic calendar", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task SchoolAdminCanSaveListAndPublishCalendarDrafts()
+    {
+        Login(UserRole.SchoolAdmin);
+        var draftRequest = new CreateAcademicCalendarRequest(_factory.SchoolId, "2026/2027 Draft", "2026/2027",
+            "https://example.com/calendar.png", DateTimeOffset.UtcNow, false, "Draft");
+        var create = await _client.PostAsJsonAsync("/api/v1/calendar", draftRequest);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var draft = await create.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal("Draft", draft.Status);
+        Assert.False(draft.IsOfficial);
+
+        var draftsResponse = await _client.GetAsync("/api/v1/calendar/manage?status=Draft");
+        Assert.Equal(HttpStatusCode.OK, draftsResponse.StatusCode);
+        var drafts = await draftsResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse[]>(JsonOptions);
+        Assert.Contains(drafts!, item => item.Id == draft.Id);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/api/v1/calendar/current")).StatusCode);
+
+        var publishResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/publish", null);
+        Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
+        var published = await publishResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
+        Assert.Equal("Published", published!.Status);
+        Assert.True(published.IsOfficial);
+
+        Login(UserRole.Student);
+        var current = await _client.GetFromJsonAsync<AcademicCalendarResponse>("/api/v1/calendar/current", JsonOptions);
+        Assert.Equal(draft.Id, current!.Id);
+        Assert.Equal("Published", current.Status);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync($"/api/v1/calendar/manage?institutionId={_factory.SchoolId}")).StatusCode);
     }
 
     [Fact]

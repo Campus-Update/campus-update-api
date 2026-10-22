@@ -11,21 +11,27 @@ public sealed record CreateAcademicCalendarRequest(
     Guid InstitutionId,
     [Required, MaxLength(250)] string Title,
     [Required, MaxLength(50)] string AcademicSession,
-    [Required, Url, MaxLength(2048)] string ImageUrl,
+    [MaxLength(2048)] string ImageUrl,
     DateTimeOffset PublishedAt,
-    bool IsOfficial = true);
+    bool IsOfficial = true,
+    string Status = "Published");
 public sealed record AcademicCalendarResponse(
     Guid Id,
     Guid InstitutionId,
     string Title,
     string AcademicSession,
     string ImageUrl,
-    DateTimeOffset PublishedAt);
+    DateTimeOffset PublishedAt,
+    string Status = "Published",
+    bool IsOfficial = true);
 
 public sealed class CalendarUploadRequest
 {
+    public Guid? CalendarId { get; set; }
     public Guid InstitutionId { get; set; }
     [Required, MaxLength(250)] public string Title { get; set; } = "";
     [Required, MaxLength(50)] public string AcademicSession { get; set; } = "";
+    public string Status { get; set; } = "Published";
+    public DateTimeOffset? PublishedAt { get; set; }
     [Required] public Microsoft.AspNetCore.Http.IFormFile File { get; set; } = null!;
 }
