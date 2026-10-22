@@ -902,6 +902,32 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
+    public async Task ContentImageUploadSetsCoverAndFeedReturnsSignedImageUrl()
+    {
+        Login(UserRole.SuperAdmin);
+        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.CornflowerBlue, 64, 64);
+        var png = image.ToByteArray(ImageMagick.MagickFormat.Png);
+        using var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(png);
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        form.Add(file, "file", "cover.png");
+
+        var upload = await _client.PostAsync($"/api/v1/media/content/{_factory.PublishedId}", form);
+        Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var content = await db.ContentItems.SingleAsync(x => x.Id == _factory.PublishedId);
+            Assert.StartsWith("content/", content.CoverImageUrl);
+        }
+
+        Login(UserRole.Student);
+        var feed = await _client.GetFromJsonAsync<ContentResponse[]>("/api/v1/feed", JsonOptions);
+        var item = Assert.Single(feed!, x => x.Id == _factory.PublishedId);
+        Assert.Contains("signed=test", item.ImageUrl);
+    }
+
+    [Fact]
     public async Task NewsCategoryFilterReturnsOnlyMatchingCategory()
     {
         using (var scope = _factory.Services.CreateScope())

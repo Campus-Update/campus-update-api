@@ -5,6 +5,7 @@ using CampusUpdate.Domain.Schools;
 using CampusUpdate.Domain.Users;
 using CampusUpdate.Domain.Content;
 using CampusUpdate.Infrastructure.Persistence;
+using CampusUpdate.Infrastructure.Media;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -15,7 +16,7 @@ namespace CampusUpdate.Api.Controllers;
 [ApiController]
 [Authorize(Roles = nameof(UserRole.SuperAdmin))]
 [Route("api/v1/admin")]
-public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<AppUser> hasher) : ControllerBase
+public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<AppUser> hasher, IMediaStorage mediaStorage) : ControllerBase
 {
     [HttpGet("platform-settings")]
     public async Task<ActionResult<AdminPlatformSettingsResponse>> GetPlatformSettings(CancellationToken cancellationToken)
@@ -286,11 +287,7 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
             .Where(x => x.ContentItemId.HasValue && contentIds.Contains(x.ContentItemId.Value) && x.OpenedAt != null)
             .GroupBy(x => x.ContentItemId!.Value).Select(x => new { ContentId = x.Key, Count = x.Count() })
             .ToDictionaryAsync(x => x.ContentId, x => x.Count, cancellationToken);
-        return Ok(new AdminModerationContentPageResponse(
-            page,
-            pageSize,
-            totalCount,
-            items.Select(x => new AdminModerationContentResponse(
+        var responses = items.Select(x => new AdminModerationContentResponse(
                 x.Id,
                 x.Title,
                 x.Body,
@@ -320,7 +317,21 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
                     a.AcademicLevelId,
                     a.TargetAudience)).ToArray(),
                 uniqueReach.GetValueOrDefault(x.Id), notificationOpens.GetValueOrDefault(x.Id),
-                uniqueReach.GetValueOrDefault(x.Id), uniqueReach.GetValueOrDefault(x.Id))).ToArray()));
+                uniqueReach.GetValueOrDefault(x.Id), uniqueReach.GetValueOrDefault(x.Id))).ToArray();
+        for (var index = 0; index < responses.Length; index++)
+        {
+            var imageUrl = responses[index].ImageUrl;
+            if (!string.IsNullOrWhiteSpace(imageUrl) && imageUrl.StartsWith("content/", StringComparison.Ordinal))
+                responses[index] = responses[index] with
+                {
+                    ImageUrl = await mediaStorage.CreateDownloadUrlAsync(imageUrl, TimeSpan.FromMinutes(15), cancellationToken)
+                };
+        }
+        return Ok(new AdminModerationContentPageResponse(
+            page,
+            pageSize,
+            totalCount,
+            responses));
     }
 
     [HttpPost("schools")]
