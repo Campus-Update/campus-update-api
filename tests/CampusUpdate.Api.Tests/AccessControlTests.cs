@@ -962,6 +962,20 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
+    public async Task ContentCreateAcceptsImageUrlAndReturnsIt()
+    {
+        Login(UserRole.SuperAdmin);
+        var request = Content(_factory.SchoolId) with { ImageUrl = "https://images.example.test/post.png" };
+
+        var response = await _client.PostAsJsonAsync("/api/v1/content", request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var content = await response.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+
+        Assert.Equal(request.ImageUrl, content!.ImageUrl);
+        Assert.Contains("\"imageUrl\":\"https://images.example.test/post.png\"", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task NewsCategoryFilterReturnsOnlyMatchingCategory()
     {
         using (var scope = _factory.Services.CreateScope())
