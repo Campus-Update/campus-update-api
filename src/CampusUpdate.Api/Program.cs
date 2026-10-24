@@ -11,9 +11,12 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
+using Swashbuckle.AspNetCore.SwaggerGen;
 using CampusUpdate.Api.Payments;
 using CampusUpdate.Api.Auth;
 using CampusUpdate.Api.Notifications;
+using CampusUpdate.Api.Swagger;
 
 var builder = WebApplication.CreateBuilder(args);
 ImageMagick.ResourceLimits.Memory = 256UL * 1024 * 1024;
@@ -36,7 +39,17 @@ builder.Services.AddHealthChecks();
 builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        Description = "Sign in with POST /api/v1/auth/login, copy the accessToken from the response, then paste the token here."
+    });
+    options.OperationFilter<AuthorizeOperationFilter>();
+});
 builder.Services.AddInfrastructure(builder.Configuration);
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
@@ -138,6 +151,7 @@ if (args.Contains("--bootstrap-admin"))
 
 app.UseExceptionHandler();
 var swaggerEnabled = app.Environment.IsDevelopment() ||
+                     app.Environment.IsStaging() ||
                      builder.Configuration.GetValue<bool>("Swagger:Enabled");
 if (swaggerEnabled)
 {

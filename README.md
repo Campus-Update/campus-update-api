@@ -33,7 +33,9 @@ dotnet tool run dotnet-ef database update --project src/CampusUpdate.Infrastruct
 dotnet run --project src/CampusUpdate.Api
 ```
 
-The API starts using the URL shown by `dotnet run`. Check `/health` and, in development, use the interactive Swagger UI at `/swagger` or the OpenAPI document at `/openapi/v1.json`.
+The API starts using the URL shown by `dotnet run`. Check `/health` and use the interactive Swagger UI at `/swagger` or the OpenAPI document at `/openapi/v1.json` in Development and Staging.
+
+To call a protected endpoint in Swagger, run `POST /api/v1/auth/login`, copy `accessToken` from the response, click **Authorize**, and paste the token. Swagger adds the `Bearer` prefix automatically. The feed filters are optional, so `GET /api/v1/feed` can be executed without entering any query values. Production Swagger remains disabled unless `Swagger__Enabled=true` is explicitly configured.
 
 ## Quality checks
 
