@@ -968,7 +968,7 @@ public sealed class AccessControlTests : IDisposable
         var ownFile = new ByteArrayContent(png);
         ownFile.Headers.ContentType = new MediaTypeHeaderValue("image/png");
         ownForm.Add(ownFile, "file", "calendar.png");
-        var upload = await _client.PostAsync($"/api/v1/calendar/{ownCalendar!.Id}/media", ownForm);
+        var upload = await _client.PostAsync($"/api/v1/media/calendar/{ownCalendar!.Id}", ownForm);
         Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
         var updated = await upload.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
         Assert.Contains("signed=test", updated!.ImageUrl);
@@ -979,7 +979,7 @@ public sealed class AccessControlTests : IDisposable
         foreignFile.Headers.ContentType = new MediaTypeHeaderValue("image/png");
         foreignForm.Add(foreignFile, "file", "calendar.png");
         Assert.Equal(HttpStatusCode.Forbidden,
-            (await _client.PostAsync($"/api/v1/calendar/{foreignCalendar!.Id}/media", foreignForm)).StatusCode);
+            (await _client.PostAsync($"/api/v1/media/calendar/{foreignCalendar!.Id}", foreignForm)).StatusCode);
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
