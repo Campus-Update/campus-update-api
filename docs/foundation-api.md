@@ -15,6 +15,7 @@ Authenticated mobile clients register or deactivate FCM devices with `POST /devi
 | GET `/admin/platform-settings` | SuperAdmin | Reads platform name, support contacts, maintenance mode, listing fee, invoice days and event payment hold setting; returns defaults until saved |
 | PUT `/admin/platform-settings` | SuperAdmin | Saves the same settings; request fields: `platformName`, `supportEmail`, `supportPhone`, `maintenanceMode`, `listingFee`, `invoiceDays`, `holdEventsUntilPayment` |
 | GET `/institution/stats` | SchoolAdmin, SuperAdmin | SchoolAdmins see counts and distinct students reached for their own institution; SuperAdmins see platform-wide totals |
+| POST `/calendar/{id}/media` | SchoolAdmin, SuperAdmin | Uploads/replaces the calendar image using multipart field `file`; SchoolAdmins are restricted to their institution |
 | GET `/departments?institutionId={id}` | SchoolAdmin, SuperAdmin | Lists departments with faculty, institution, programme and academic-level details; SchoolAdmins are scoped to their institution |
 | GET `/departments/{id}` | SchoolAdmin, SuperAdmin | Reads one department in the caller's permitted institution scope |
 | GET `/auth/notification-preferences` | SchoolAdmin, SuperAdmin | Reads the caller's email/push toggles and summary cadence |
