@@ -65,9 +65,13 @@ Example moderation-list response:
 
 `POST /api/v1/calendar/upload` accepts multipart/form-data fields `institutionId`, `title`, `academicSession`, `file`, optional `status` (`Draft` or `Published`, defaults to `Published`), optional `publishedAt`, and optional `calendarId` to replace an existing calendar. Only SchoolAdmin/SuperAdmin accounts can upload. Images must be valid PNG, JPEG or WebP, at most 5 MB and 40 megapixels, with dimensions at most 20,000 pixels. The server compresses the image to WebP and removes image metadata. A Draft is saved without changing the current published calendar; a Published upload replaces the institution's current calendar after successful storage. Drafts may omit an image, but an image is required before publishing.
 
+Upload or replace the image on an existing calendar with `POST /api/v1/calendar/{calendarId}/media`, using multipart/form-data field `file`. The endpoint returns the updated calendar with a signed image URL and does not change its status or publication state. SchoolAdmins can upload only to calendars belonging to their institution; SuperAdmins can upload to any institution.
+
 School Admins can list calendars for their institution with `GET /api/v1/calendar/manage?status=Draft` (omit `status` to include drafts and published history). SuperAdmins must pass `institutionId`; they may also filter by `status`. Create or update calendar records through `POST /api/v1/calendar` and `PUT /api/v1/calendar/{id}` with `status` set to `Draft` or `Published`. Drafts can be deleted with `DELETE /api/v1/calendar/{id}`; published calendars cannot be deleted through this endpoint. Publish a saved draft with `POST /api/v1/calendar/{id}/publish`. Publishing makes it the institution's current official calendar and removes the official flag from the previous one. Drafts never appear in the mobile-facing calendar endpoints.
 
 `GET /api/v1/calendar/current` returns `id`, `institutionId`, `title`, `academicSession`, `imageUrl`, `publishedAt`, `status`, and `isOfficial`. The existing `/calendar` and `/calendar/latest` aliases remain available and return only the current official Published calendar. Bucket images use a signed URL valid for 15 minutes; fetch the endpoint again to refresh it. A missing calendar returns HTTP 404 with a ProblemDetails title and description suitable for an empty state. A SchoolAdmin accessing or uploading for a different institution receives 403.
+
+Content create and update requests do not accept `imageUrl`; upload content images separately with `POST /api/v1/media/content/{contentId}` and multipart/form-data field `file`.
 
 ## Devices and notification receipts
 

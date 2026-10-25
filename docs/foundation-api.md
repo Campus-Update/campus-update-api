@@ -14,17 +14,17 @@ Authenticated mobile clients register or deactivate FCM devices with `POST /devi
 | GET `/admin/content/pending` | SuperAdmin | Lists PendingApproval content; optional `institutionId`, `type`, `search`, `page`, `pageSize`; paginated response includes content, event, author, and audience details |
 | GET `/admin/platform-settings` | SuperAdmin | Reads platform name, support contacts, maintenance mode, listing fee, invoice days and event payment hold setting; returns defaults until saved |
 | PUT `/admin/platform-settings` | SuperAdmin | Saves the same settings; request fields: `platformName`, `supportEmail`, `supportPhone`, `maintenanceMode`, `listingFee`, `invoiceDays`, `holdEventsUntilPayment` |
-| GET `/institution/stats` | SuperAdmin | Returns total, active and pending-verification institution counts plus distinct students with recorded content views |
+| GET `/institution/stats` | SchoolAdmin, SuperAdmin | SchoolAdmins see counts and distinct students reached for their own institution; SuperAdmins see platform-wide totals |
 | GET `/departments?institutionId={id}` | SchoolAdmin, SuperAdmin | Lists departments with faculty, institution, programme and academic-level details; SchoolAdmins are scoped to their institution |
 | GET `/departments/{id}` | SchoolAdmin, SuperAdmin | Reads one department in the caller's permitted institution scope |
-| GET `/auth/notification-preferences` | SuperAdmin | Reads the caller's email/push toggles and summary cadence |
-| PUT `/auth/notification-preferences` | SuperAdmin | Saves `{emailNotificationsEnabled, pushNotificationsEnabled, summaryCadence}`; cadence is `Immediate`, `Daily`, `Weekly`, or `Never` |
+| GET `/auth/notification-preferences` | SchoolAdmin, SuperAdmin | Reads the caller's email/push toggles and summary cadence |
+| PUT `/auth/notification-preferences` | SchoolAdmin, SuperAdmin | Saves `{emailNotificationsEnabled, pushNotificationsEnabled, summaryCadence}`; cadence is `Immediate`, `Daily`, `Weekly`, or `Never` |
 | PUT `/auth/academic-settings` | Authenticated active user | Existing fields plus optional `allCampusFeed` (default false) |
 | GET `/auth/profile` | Authenticated active user | Existing profile fields plus `allCampusFeed` |
 
 Administrator passwords require at least 12 characters. School name/state are required and bounded; slugs contain lowercase letters, numbers and single hyphen separators. Initial super-admin creation is an operator command documented in `environments.md`, not an HTTP route. This API cannot create or modify other super administrators.
 
-Authentication validates signature, issuer, audience, expiry and the current user's active status and role. A disabled/deleted account or stale role token receives 401. Authenticated non-super-admin users receive 403 on admin operations. School administrators cannot change their own assigned institution. New administrator operations create audit records in the same database save; records contain actor, action, target, institution, timestamp and non-secret change details.
+Authentication validates signature, issuer, audience, expiry and the current user's active status and role. A disabled/deleted account or stale role token receives 401. Authenticated users outside the roles permitted for an admin route receive 403. SchoolAdmins see only their institution's statistics and cannot change their own assigned institution. New administrator operations create audit records in the same database save; records contain actor, action, target, institution, timestamp and non-secret change details.
 
 Personalized feeds match the user's academic hierarchy; all-campus feeds include published content throughout the same institution. The preference never enables cross-school access. Direct content reads follow the same scope; school administrators may review unpublished content only in their own institution. Foreign or inaccessible content returns 404. Audience creation checks institution/faculty/department/programme/level relationships, rejecting invalid combinations with 400.
 

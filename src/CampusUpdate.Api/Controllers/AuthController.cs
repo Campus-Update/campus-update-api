@@ -283,7 +283,7 @@ public sealed class AuthController(
         return Ok(ToProfileResponse(user));
     }
 
-    [Authorize(Roles = nameof(UserRole.SuperAdmin))]
+    [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.SuperAdmin))]
     [HttpGet("notification-preferences")]
     public async Task<ActionResult<NotificationPreferencesResponse>> GetNotificationPreferences(
         CancellationToken cancellationToken)
@@ -293,7 +293,7 @@ public sealed class AuthController(
         return Ok(ToNotificationPreferencesResponse(user));
     }
 
-    [Authorize(Roles = nameof(UserRole.SuperAdmin))]
+    [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.SuperAdmin))]
     [HttpPut("notification-preferences")]
     public async Task<ActionResult<NotificationPreferencesResponse>> UpdateNotificationPreferences(
         NotificationPreferencesRequest request,
