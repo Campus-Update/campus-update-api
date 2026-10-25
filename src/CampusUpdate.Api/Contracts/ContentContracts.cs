@@ -26,8 +26,7 @@ public sealed record CreateContentRequest(
     string? SponsorName,
     string? TargetUrl,
     IReadOnlyCollection<AudienceRequest> Audiences,
-    [MaxLength(100)] string? Category = null,
-    string? ImageUrl = null);
+    [MaxLength(100)] string? Category = null);
 
 public sealed record UpdateContentRequest(
     [Required, MaxLength(250)] string Title,
@@ -42,8 +41,7 @@ public sealed record UpdateContentRequest(
     string? SponsorName,
     string? TargetUrl,
     IReadOnlyCollection<AudienceRequest> Audiences,
-    [MaxLength(100)] string? Category = null,
-    string? ImageUrl = null);
+    [MaxLength(100)] string? Category = null);
 
 public sealed record ChangeContentStatusRequest(ContentStatus Status);
 

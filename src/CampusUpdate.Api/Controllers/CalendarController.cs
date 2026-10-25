@@ -213,55 +213,92 @@ public sealed class CalendarController(CampusUpdateDbContext db, IServiceProvide
             if (editedCalendar is null) return NotFound();
             if (editedCalendar.InstitutionId != request.InstitutionId) return Forbid();
         }
-        if (request.File.Length is <= 0 or > 5 * 1024 * 1024)
-            return BadRequest(new ProblemDetails { Title = "Calendar images must be between 1 byte and 5 MB." });
-        await using var input = request.File.OpenReadStream();
+        var storage = services.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
+        var storedImage = await StoreCalendarImageAsync(request.File, request.InstitutionId, storage, cancellationToken);
+        if (storedImage.Error is not null)
+            return BadRequest(new ProblemDetails { Title = storedImage.Error });
+        var key = storedImage.Key ?? throw new InvalidOperationException("Calendar image storage returned no key.");
+        var isPublished = parsedStatus == AcademicCalendarStatus.Published;
+        if (isPublished)
+        {
+            var previous = await db.AcademicCalendars.Where(c => c.InstitutionId == request.InstitutionId && c.IsOfficial && c.Id != request.CalendarId).ToListAsync(cancellationToken);
+            foreach (var old in previous) old.IsOfficial = false;
+        }
+        var calendar = editedCalendar ?? new AcademicCalendar { InstitutionId = request.InstitutionId, Title = request.Title.Trim(), AcademicSession = request.AcademicSession.Trim(), ImageUrl = key, PublishedAt = DateTimeOffset.UtcNow, IsOfficial = isPublished, Status = parsedStatus.Value };
+        calendar.Title = request.Title.Trim();
+        calendar.AcademicSession = request.AcademicSession.Trim();
+        calendar.ImageUrl = key;
+        calendar.PublishedAt = request.PublishedAt ?? DateTimeOffset.UtcNow;
+        calendar.IsOfficial = isPublished;
+        calendar.Status = parsedStatus.Value;
+        if (editedCalendar is null) db.AcademicCalendars.Add(calendar);
+        await db.SaveChangesAsync(cancellationToken);
+        var url = await storage.CreateDownloadUrlAsync(key, TimeSpan.FromMinutes(15), cancellationToken);
+        return Created(isPublished ? "/api/v1/calendar/current" : "/api/v1/calendar/manage", ToResponse(calendar, url));
+    }
+
+    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [HttpPost("{id:guid}/media")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    public async Task<ActionResult<AcademicCalendarResponse>> UploadImage(
+        Guid id, IFormFile file, CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (calendar is null) return NotFound();
+        if (user.Role != UserRole.SuperAdmin && calendar.InstitutionId != user.InstitutionId)
+            return Forbid();
+
+        var storage = services.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
+        var storedImage = await StoreCalendarImageAsync(file, calendar.InstitutionId, storage, cancellationToken);
+        if (storedImage.Error is not null)
+            return BadRequest(new ProblemDetails { Title = storedImage.Error });
+        calendar.ImageUrl = storedImage.Key ?? throw new InvalidOperationException("Calendar image storage returned no key.");
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(await ToSignedResponse(calendar, cancellationToken));
+    }
+
+    private static async Task<(string? Key, string? Error)> StoreCalendarImageAsync(
+        IFormFile file,
+        Guid institutionId,
+        CampusUpdate.Infrastructure.Media.IMediaStorage storage,
+        CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length is <= 0 or > 5 * 1024 * 1024)
+            return (null, "Calendar images must be between 1 byte and 5 MB.");
+
+        await using var input = file.OpenReadStream();
         var header = new byte[12];
         var headerLength = await input.ReadAsync(header, cancellationToken);
         var isPng = headerLength >= 8 && header.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
         var isJpeg = headerLength >= 3 && header[0] == 255 && header[1] == 216 && header[2] == 255;
         var isWebp = headerLength == 12 && System.Text.Encoding.ASCII.GetString(header, 0, 4) == "RIFF" && System.Text.Encoding.ASCII.GetString(header, 8, 4) == "WEBP";
         if (!isPng && !isJpeg && !isWebp)
-            return BadRequest(new ProblemDetails { Title = "The uploaded file is not a PNG, JPEG or WebP image." });
-        var storage = services.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
-        input.Position = 0;
-        ImageMagick.MagickImage image;
+            return (null, "The uploaded file is not a PNG, JPEG or WebP image.");
+
         try
         {
-            var info = new ImageMagick.MagickImageInfo(input);
-            if (info.Format is not (ImageMagick.MagickFormat.Png or ImageMagick.MagickFormat.Jpeg or ImageMagick.MagickFormat.WebP) || (long)info.Width * info.Height > 40_000_000)
-                return BadRequest(new ProblemDetails { Title = "Use a PNG, JPEG or WebP image up to 40 megapixels." });
             input.Position = 0;
-            image = new ImageMagick.MagickImage(input);
-        }
-        catch (ImageMagick.MagickException)
-        { return BadRequest(new ProblemDetails { Title = "The uploaded file is not a valid PNG, JPEG or WebP image." }); }
-        using (image)
-        {
+            var info = new ImageMagick.MagickImageInfo(input);
+            if (info.Format is not (ImageMagick.MagickFormat.Png or ImageMagick.MagickFormat.Jpeg or ImageMagick.MagickFormat.WebP) ||
+                (long)info.Width * info.Height > 40_000_000)
+                return (null, "Use a PNG, JPEG or WebP image up to 40 megapixels.");
+
+            input.Position = 0;
+            using var image = new ImageMagick.MagickImage(input);
             await using var output = new MemoryStream();
             image.Quality = 85;
             image.Strip();
             await image.WriteAsync(output, ImageMagick.MagickFormat.WebP, cancellationToken);
             output.Position = 0;
-            var key = $"calendar/{request.InstitutionId:N}/{Guid.NewGuid():N}.webp";
+            var key = $"calendar/{institutionId:N}/{Guid.NewGuid():N}.webp";
             await storage.UploadAsync(output, key, "image/webp", output.Length, cancellationToken);
-            var isPublished = parsedStatus == AcademicCalendarStatus.Published;
-            if (isPublished)
-            {
-                var previous = await db.AcademicCalendars.Where(c => c.InstitutionId == request.InstitutionId && c.IsOfficial && c.Id != request.CalendarId).ToListAsync(cancellationToken);
-                foreach (var old in previous) old.IsOfficial = false;
-            }
-            var calendar = editedCalendar ?? new AcademicCalendar { InstitutionId = request.InstitutionId, Title = request.Title.Trim(), AcademicSession = request.AcademicSession.Trim(), ImageUrl = key, PublishedAt = DateTimeOffset.UtcNow, IsOfficial = isPublished, Status = parsedStatus.Value };
-            calendar.Title = request.Title.Trim();
-            calendar.AcademicSession = request.AcademicSession.Trim();
-            calendar.ImageUrl = key;
-            calendar.PublishedAt = request.PublishedAt ?? DateTimeOffset.UtcNow;
-            calendar.IsOfficial = isPublished;
-            calendar.Status = parsedStatus.Value;
-            if (editedCalendar is null) db.AcademicCalendars.Add(calendar);
-            await db.SaveChangesAsync(cancellationToken);
-            var url = await storage.CreateDownloadUrlAsync(key, TimeSpan.FromMinutes(15), cancellationToken);
-            return Created(isPublished ? "/api/v1/calendar/current" : "/api/v1/calendar/manage", ToResponse(calendar, url));
+            return (key, null);
+        }
+        catch (ImageMagick.MagickException)
+        {
+            return (null, "The uploaded file is not a valid PNG, JPEG or WebP image.");
         }
     }
 

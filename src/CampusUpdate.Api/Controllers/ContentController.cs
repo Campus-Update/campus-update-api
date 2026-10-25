@@ -146,8 +146,6 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         item.Urgency = request.Urgency; item.SourceName = request.SourceName.Trim(); item.EventStartsAt = request.EventStartsAt;
         item.EventEndsAt = request.EventEndsAt; item.EventLocation = request.EventLocation?.Trim(); item.RegistrationUrl = request.RegistrationUrl;
         item.SponsorName = request.SponsorName?.Trim(); item.TargetUrl = request.TargetUrl;
-        if (request.ImageUrl is not null)
-            item.CoverImageUrl = request.ImageUrl.Trim();
         ReplaceAudiences(item, request.Audiences);
         Audit("ContentUpdated", item.Id, request.Audiences.First().InstitutionId,
             new { targetType = "Content", actionTag = ContentActionTag(item.Type), item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
@@ -239,7 +237,6 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             RegistrationUrl = request.RegistrationUrl,
             SponsorName = request.SponsorName?.Trim(),
             TargetUrl = request.TargetUrl,
-            CoverImageUrl = request.ImageUrl?.Trim(),
             AuthorId = authorId,
             Audiences = request.Audiences.Select(a => new ContentAudience
             {
