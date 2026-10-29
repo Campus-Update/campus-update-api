@@ -45,6 +45,11 @@ public sealed record UpdateContentRequest(
 
 public sealed record ChangeContentStatusRequest(ContentStatus Status);
 
+public sealed record CreateEmergencyAlertRequest(
+    [Required, MaxLength(250)] string Title,
+    [Required] string Body,
+    string? Summary = null);
+
 public sealed record ContentResponse(
     Guid Id,
     string Title,
@@ -67,4 +72,5 @@ public sealed record ContentResponse(
     string? TargetUrl = null,
     DateTimeOffset? CreatedAt = null,
     DateTimeOffset? UpdatedAt = null,
-    string? ImageUrl = null);
+    string? ImageUrl = null,
+    bool IsEmergencyAlert = false);

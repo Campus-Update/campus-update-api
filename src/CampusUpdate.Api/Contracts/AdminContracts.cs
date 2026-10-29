@@ -88,6 +88,25 @@ public sealed record CreateSchoolAdminRequest(
     [Required, MaxLength(100)] string LastName,
     Guid InstitutionId);
 
+public sealed record CreateInstitutionAdministratorRequest(
+    [Required, EmailAddress] string Email,
+    [Required, MinLength(12)] string Password,
+    [Required, MaxLength(100)] string FirstName,
+    [Required, MaxLength(100)] string LastName,
+    Guid InstitutionId,
+    UserRole Role);
+
+public sealed record InstitutionAdministratorResponse(
+    Guid Id,
+    string Email,
+    string FirstName,
+    string LastName,
+    UserRole Role,
+    Guid InstitutionId,
+    bool IsActive);
+
+public sealed record UpdateInstitutionAdministratorRequest(UserRole Role, bool IsActive);
+
 public sealed record UpdateAdminUserRequest(UserRole Role, bool IsActive);
 public sealed record AdminUserResponse(Guid Id, string Email, UserRole Role, Guid InstitutionId, bool IsActive);
 

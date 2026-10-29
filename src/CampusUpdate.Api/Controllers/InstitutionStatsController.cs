@@ -9,7 +9,9 @@ using Microsoft.EntityFrameworkCore;
 namespace CampusUpdate.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.SuperAdmin))]
+[Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.LeadSchoolAdmin) + "," +
+                    nameof(UserRole.NewsAdmin) + "," + nameof(UserRole.CalendarAdmin) + "," +
+                    nameof(UserRole.SuperAdmin))]
 [Route("api/v1/institution")]
 public sealed class InstitutionStatsController(CampusUpdateDbContext db) : ControllerBase
 {
@@ -17,12 +19,12 @@ public sealed class InstitutionStatsController(CampusUpdateDbContext db) : Contr
     public async Task<ActionResult<InstitutionStatsResponse>> GetStats(CancellationToken cancellationToken)
     {
         Guid? institutionId = null;
-        if (User.IsInRole(nameof(UserRole.SchoolAdmin)))
+        if (!User.IsInRole(nameof(UserRole.SuperAdmin)))
         {
             if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
                 return Unauthorized();
             institutionId = await db.Users.AsNoTracking()
-                .Where(user => user.Id == userId && user.IsActive && user.Role == UserRole.SchoolAdmin)
+                .Where(user => user.Id == userId && user.IsActive && user.Role != UserRole.SuperAdmin)
                 .Select(user => (Guid?)user.InstitutionId)
                 .SingleOrDefaultAsync(cancellationToken);
             if (institutionId is null)

@@ -24,6 +24,8 @@ public sealed record AcademicCalendarResponse(
     DateTimeOffset PublishedAt,
     string Status = "Published",
     bool IsOfficial = true);
+public sealed record RejectAcademicCalendarRequest(
+    [Required, MaxLength(1000)] string Reason);
 
 public sealed class CalendarUploadRequest
 {

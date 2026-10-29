@@ -42,7 +42,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             .SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
         if (user is null)
             return Unauthorized();
-        if (user.Role is UserRole.SchoolAdmin or UserRole.SuperAdmin)
+        if (user.Role.IsInstitutionAdministrator() || user.Role == UserRole.SuperAdmin)
         {
             if (facultyId.HasValue || departmentId.HasValue || academicLevelId.HasValue)
                 return BadRequest(new ProblemDetails { Title = "Academic profile filters are only available on the personalized feed." });
@@ -50,6 +50,12 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             var managedQuery = db.ContentItems.AsNoTracking().AsQueryable();
             if (user.Role == UserRole.SchoolAdmin)
                 managedQuery = managedQuery.Where(x => x.Audiences.Any(a => a.InstitutionId == user.InstitutionId));
+            else if (user.Role != UserRole.SuperAdmin)
+                managedQuery = managedQuery.Where(x => x.Audiences.Any(a => a.InstitutionId == user.InstitutionId));
+            if (user.Role == UserRole.NewsAdmin)
+                managedQuery = managedQuery.Where(x => x.Type == ContentType.News || x.Type == ContentType.Announcement);
+            else if (user.Role == UserRole.CalendarAdmin)
+                managedQuery = managedQuery.Where(x => x.Type == ContentType.Event);
             if (status.HasValue)
                 managedQuery = managedQuery.Where(x => x.Status == status.Value);
             if (type.HasValue)
@@ -73,7 +79,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                     db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
                     db.ContentViews.Count(v => v.ContentItemId == x.Id),
                     x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
-                    x.CreatedAt, x.UpdatedAt, x.CoverImageUrl))
+                    x.CreatedAt, x.UpdatedAt, x.CoverImageUrl, x.IsEmergencyAlert))
                 .ToListAsync(cancellationToken);
             return Ok(await AddSignedImageUrlsAsync(managedItems, cancellationToken));
         }
@@ -87,7 +93,8 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
 
         var query = db.ContentItems.AsNoTracking().Where(x =>
             x.Status == ContentStatus.Published &&
-            ((x.Type == ContentType.News && user.FeedPreference.NewsEnabled) ||
+            (x.IsEmergencyAlert ||
+             (x.Type == ContentType.News && user.FeedPreference.NewsEnabled) ||
              (x.Type == ContentType.Announcement && user.FeedPreference.AnnouncementsEnabled) ||
              (x.Type == ContentType.Event && user.FeedPreference.EventsEnabled) ||
              (x.Type == ContentType.Advertisement && user.FeedPreference.AdvertisementsEnabled)) &&
@@ -121,14 +128,50 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                 db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
                 db.ContentViews.Count(v => v.ContentItemId == x.Id),
                 x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
-                x.CreatedAt, x.UpdatedAt, x.CoverImageUrl))
+                x.CreatedAt, x.UpdatedAt, x.CoverImageUrl, x.IsEmergencyAlert))
             .ToListAsync(cancellationToken);
         db.UserActivities.Add(new CampusUpdate.Domain.Notifications.UserActivity { UserId = user.Id, InstitutionId = user.InstitutionId, ActivityType = "feed_fetch", OccurredAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(cancellationToken);
         return Ok(await AddSignedImageUrlsAsync(items, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,SuperAdmin")]
+    [HttpGet("pending-approval")]
+    public async Task<ActionResult<IReadOnlyCollection<ContentResponse>>> GetPendingApproval(
+        [FromQuery] Guid? institutionId,
+        [FromQuery] ContentType? type,
+        CancellationToken cancellationToken)
+    {
+        var user = await CurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        if (user.Role == UserRole.LeadSchoolAdmin)
+        {
+            if (institutionId.HasValue && institutionId != user.InstitutionId) return Forbid();
+            institutionId = user.InstitutionId;
+        }
+
+        var query = db.ContentItems.AsNoTracking()
+            .Where(x => x.Status == ContentStatus.PendingApproval);
+        if (institutionId.HasValue)
+            query = query.Where(x => x.Audiences.Any(a => a.InstitutionId == institutionId.Value));
+        if (type.HasValue)
+            query = query.Where(x => x.Type == type.Value);
+
+        var items = await query.OrderByDescending(x => x.CreatedAt)
+            .ThenBy(x => x.Id)
+            .Select(x => new ContentResponse(
+                x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType, x.SourceName,
+                x.PublishedAt, x.Category,
+                db.ContentViews.Count(v => v.ContentItemId == x.Id),
+                db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
+                db.ContentViews.Count(v => v.ContentItemId == x.Id),
+                x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName,
+                x.TargetUrl, x.CreatedAt, x.UpdatedAt, x.CoverImageUrl, x.IsEmergencyAlert))
+            .ToListAsync(cancellationToken);
+        return Ok(await AddSignedImageUrlsAsync(items, cancellationToken));
+    }
+
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ContentResponse>> Update(Guid id, UpdateContentRequest request, CancellationToken cancellationToken)
     {
@@ -136,8 +179,10 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (user is null) return Unauthorized();
         var item = await db.ContentItems.Include(x => x.Audiences).SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (item is null) return NotFound();
+        if (!user.Role.CanManageContent(item.Type)) return Forbid();
         if (user.Role != UserRole.SuperAdmin && item.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
         if (item.Status is ContentStatus.Published or ContentStatus.Archived) return Conflict(new ProblemDetails { Title = "Published content must be archived before editing." });
+        var previousStatus = item.Status;
         if (request.Audiences.Count == 0 || (user.Role != UserRole.SuperAdmin && request.Audiences.Any(a => a.InstitutionId != user.InstitutionId))) return Forbid();
         foreach (var audience in request.Audiences)
             if (!await AudienceIsValid(audience, cancellationToken)) return BadRequest(new ProblemDetails { Title = "The selected audience hierarchy is invalid." });
@@ -147,13 +192,15 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         item.EventEndsAt = request.EventEndsAt; item.EventLocation = request.EventLocation?.Trim(); item.RegistrationUrl = request.RegistrationUrl;
         item.SponsorName = request.SponsorName?.Trim(); item.TargetUrl = request.TargetUrl;
         ReplaceAudiences(item, request.Audiences);
+        if (item.Status == ContentStatus.Rejected)
+            item.Status = ContentStatus.Draft;
         Audit("ContentUpdated", item.Id, request.Audiences.First().InstitutionId,
-            new { targetType = "Content", actionTag = ContentActionTag(item.Type), item.Title, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
+            new { targetType = "Content", actionTag = ContentActionTag(item.Type), item.Title, previousStatus, currentStatus = item.Status, audienceInstitutionIds = request.Audiences.Select(a => a.InstitutionId).Distinct().ToArray() });
         await db.SaveChangesAsync(cancellationToken);
         return Ok(await ToResponseAsync(item, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPatch("{id:guid}/status")]
     public async Task<ActionResult<ContentResponse>> ChangeStatus(Guid id, ChangeContentStatusRequest request, CancellationToken cancellationToken)
     {
@@ -161,12 +208,13 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (user is null) return Unauthorized();
         var item = await db.ContentItems.Include(x => x.Audiences).SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (item is null) return NotFound();
+        if (!user.Role.CanManageContent(item.Type)) return Forbid();
         if (user.Role != UserRole.SuperAdmin && item.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
         var allowed = request.Status switch
         {
             ContentStatus.PendingApproval => item.Status == ContentStatus.Draft,
-            ContentStatus.Published => user.Role == UserRole.SuperAdmin && item.Status == ContentStatus.PendingApproval,
-            ContentStatus.Rejected => user.Role == UserRole.SuperAdmin && item.Status == ContentStatus.PendingApproval,
+            ContentStatus.Published => (user.Role is UserRole.SuperAdmin or UserRole.LeadSchoolAdmin) && item.Status == ContentStatus.PendingApproval,
+            ContentStatus.Rejected => (user.Role is UserRole.SuperAdmin or UserRole.LeadSchoolAdmin) && item.Status == ContentStatus.PendingApproval,
             ContentStatus.Archived => item.Status == ContentStatus.Published,
             _ => false
         };
@@ -181,7 +229,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         return Ok(await ToResponseAsync(item, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
@@ -189,6 +237,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (user is null) return Unauthorized();
         var item = await db.ContentItems.Include(x => x.Audiences).SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (item is null) return NotFound();
+        if (!user.Role.CanManageContent(item.Type)) return Forbid();
         if (user.Role != UserRole.SuperAdmin && item.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
         var institutionId = item.Audiences.First().InstitutionId;
         item.Status = ContentStatus.Archived;
@@ -196,7 +245,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         await db.SaveChangesAsync(cancellationToken); return NoContent();
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost]
     public async Task<ActionResult<ContentResponse>> Create(CreateContentRequest request, CancellationToken cancellationToken)
     {
@@ -205,6 +254,8 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         var author = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == authorId, cancellationToken);
         if (author is null)
             return Unauthorized();
+        if (!author.Role.CanManageContent(request.Type))
+            return Forbid();
         if (request.Audiences.Count == 0)
             return BadRequest(new ProblemDetails { Title = "At least one audience is required." });
         if (author.Role != UserRole.SuperAdmin && request.Audiences.Any(x => x.InstitutionId != author.InstitutionId))
@@ -266,14 +317,23 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             .SingleOrDefaultAsync(x => x.Id == userId, cancellationToken);
         if (user is null)
             return Unauthorized();
+        var isInstitutionAdministrator = user.Role.IsInstitutionAdministrator();
+        var managesAllContent = user.Role is UserRole.SchoolAdmin or UserRole.LeadSchoolAdmin or UserRole.SuperAdmin;
+        var manageableContentTypes = user.Role switch
+        {
+            UserRole.NewsAdmin => new[] { ContentType.News, ContentType.Announcement },
+            UserRole.CalendarAdmin => new[] { ContentType.Event },
+            _ => Array.Empty<ContentType>()
+        };
 
         var item = await db.ContentItems.AsNoTracking()
             .Where(x => x.Id == id && (user.Role == UserRole.SuperAdmin ||
-                (user.Role == UserRole.SchoolAdmin && x.Audiences.Any(a => a.InstitutionId == user.InstitutionId)) ||
+                (isInstitutionAdministrator && (managesAllContent || manageableContentTypes.Contains(x.Type)) &&
+                 x.Audiences.Any(a => a.InstitutionId == user.InstitutionId)) ||
                 (x.Status == ContentStatus.Published && x.Audiences.Any(a =>
                     a.InstitutionId == user.InstitutionId &&
                 (a.TargetAudience == TargetAudience.All || (a.TargetAudience == TargetAudience.Students && user.Role == UserRole.Student) || (a.TargetAudience == TargetAudience.Staff && user.Role == UserRole.Staff)) &&
-                    (user.FeedPreference.AllCampusFeed || ((a.FacultyId == null || a.FacultyId == user.FacultyId) &&
+                    (x.IsEmergencyAlert || user.FeedPreference.AllCampusFeed || ((a.FacultyId == null || a.FacultyId == user.FacultyId) &&
                     (a.DepartmentId == null || a.DepartmentId == user.DepartmentId) &&
                     (a.ProgrammeId == null || a.ProgrammeId == user.ProgrammeId) &&
                     (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))))))
@@ -283,7 +343,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                 db.UserNotifications.Count(n => n.ContentItemId == x.Id && n.OpenedAt != null),
                 db.ContentViews.Count(v => v.ContentItemId == x.Id),
                 x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
-                x.CreatedAt, x.UpdatedAt, x.CoverImageUrl))
+                x.CreatedAt, x.UpdatedAt, x.CoverImageUrl, x.IsEmergencyAlert))
             .SingleOrDefaultAsync(cancellationToken);
         if (item is null) return NotFound();
         if (user.Role is UserRole.Student or UserRole.Staff)
@@ -368,7 +428,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         var response = new ContentResponse(x.Id, x.Title, x.Body, x.Type, x.Status, x.Urgency, x.SourceType,
             x.SourceName, x.PublishedAt, x.Category, uniqueReach, notificationOpens, uniqueReach,
             x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
-            x.CreatedAt, x.UpdatedAt, x.CoverImageUrl);
+            x.CreatedAt, x.UpdatedAt, x.CoverImageUrl, x.IsEmergencyAlert);
         return response with { ImageUrl = await SignImageUrlAsync(response.ImageUrl, cancellationToken) };
     }
 

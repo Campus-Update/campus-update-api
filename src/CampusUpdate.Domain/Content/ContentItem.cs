@@ -21,6 +21,7 @@ public sealed class ContentItem : Entity
     public ContentType Type { get; set; }
     public ContentStatus Status { get; set; } = ContentStatus.Draft;
     public UrgencyLevel Urgency { get; set; } = UrgencyLevel.Normal;
+    public bool IsEmergencyAlert { get; set; }
     public SourceType SourceType { get; set; } = SourceType.Official;
     public required string SourceName { get; set; }
     public DateTimeOffset? PublishedAt { get; set; }

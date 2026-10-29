@@ -256,7 +256,7 @@ public sealed class AuthController(
         var user = await GetCurrentUser(cancellationToken);
         if (user is null)
             return Unauthorized();
-        if (user.Role is UserRole.SchoolAdmin or UserRole.SuperAdmin &&
+        if ((user.Role.IsInstitutionAdministrator() || user.Role == UserRole.SuperAdmin) &&
             user.InstitutionId != request.InstitutionId)
             return Forbid();
         if (!await AcademicSelectionIsValid(
@@ -283,7 +283,9 @@ public sealed class AuthController(
         return Ok(ToProfileResponse(user));
     }
 
-    [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.SuperAdmin))]
+    [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.LeadSchoolAdmin) + "," +
+                        nameof(UserRole.NewsAdmin) + "," + nameof(UserRole.CalendarAdmin) + "," +
+                        nameof(UserRole.SuperAdmin))]
     [HttpGet("notification-preferences")]
     public async Task<ActionResult<NotificationPreferencesResponse>> GetNotificationPreferences(
         CancellationToken cancellationToken)
@@ -293,7 +295,9 @@ public sealed class AuthController(
         return Ok(ToNotificationPreferencesResponse(user));
     }
 
-    [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.SuperAdmin))]
+    [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.LeadSchoolAdmin) + "," +
+                        nameof(UserRole.NewsAdmin) + "," + nameof(UserRole.CalendarAdmin) + "," +
+                        nameof(UserRole.SuperAdmin))]
     [HttpPut("notification-preferences")]
     public async Task<ActionResult<NotificationPreferencesResponse>> UpdateNotificationPreferences(
         NotificationPreferencesRequest request,

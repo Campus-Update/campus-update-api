@@ -13,9 +13,10 @@ public sealed class NotificationDispatcher(CampusUpdateDbContext db, FirebasePus
     {
         var users = await db.Users.Include(x => x.FeedPreference).Where(user =>
             user.IsActive &&
-            (item.Type == ContentType.News ? user.FeedPreference.NewsEnabled :
+            (item.IsEmergencyAlert ||
+             (item.Type == ContentType.News ? user.FeedPreference.NewsEnabled :
              item.Type == ContentType.Announcement ? user.FeedPreference.AnnouncementsEnabled :
-             item.Type == ContentType.Event ? user.FeedPreference.EventsEnabled : user.FeedPreference.AdvertisementsEnabled) &&
+             item.Type == ContentType.Event ? user.FeedPreference.EventsEnabled : user.FeedPreference.AdvertisementsEnabled)) &&
             db.ContentAudiences.Any(a => a.ContentItemId == item.Id && a.InstitutionId == user.InstitutionId &&
                 (a.TargetAudience == TargetAudience.All || (a.TargetAudience == TargetAudience.Students && user.Role == UserRole.Student) || (a.TargetAudience == TargetAudience.Staff && user.Role == UserRole.Staff)) &&
                 (a.FacultyId == null || a.FacultyId == user.FacultyId) &&
@@ -23,16 +24,26 @@ public sealed class NotificationDispatcher(CampusUpdateDbContext db, FirebasePus
                 (a.ProgrammeId == null || a.ProgrammeId == user.ProgrammeId) &&
                 (a.AcademicLevelId == null || a.AcademicLevelId == user.AcademicLevelId)))
             .ToListAsync(ct);
+        var existingUserIds = await db.UserNotifications
+            .Where(n => n.ContentItemId == item.Id)
+            .Select(n => n.UserId)
+            .ToHashSetAsync(ct);
         foreach (var user in users)
         {
-            if (await db.UserNotifications.AnyAsync(n => n.UserId == user.Id && n.ContentItemId == item.Id, ct)) continue;
+            if (existingUserIds.Contains(user.Id)) continue;
             db.UserNotifications.Add(new UserNotification
             {
                 UserId = user.Id,
                 ContentItemId = item.Id,
                 Title = item.Title,
                 Body = (item.Summary ?? item.Body)[..Math.Min(240, (item.Summary ?? item.Body).Length)],
-                DataJson = JsonSerializer.Serialize(new Dictionary<string, string> { ["notificationId"] = "", ["contentId"] = item.Id.ToString(), ["type"] = item.Type.ToString() })
+                DataJson = JsonSerializer.Serialize(new Dictionary<string, string>
+                {
+                    ["notificationId"] = "",
+                    ["contentId"] = item.Id.ToString(),
+                    ["type"] = item.Type.ToString(),
+                    ["emergencyAlert"] = item.IsEmergencyAlert.ToString().ToLowerInvariant()
+                })
             });
         }
         item.NotificationsEnqueuedAt = DateTimeOffset.UtcNow;
@@ -63,9 +74,12 @@ public sealed class NotificationDispatcher(CampusUpdateDbContext db, FirebasePus
 
     private async Task DeliverAsync(UserNotification notification, CancellationToken ct)
     {
+        var data = JsonSerializer.Deserialize<Dictionary<string, string>>(notification.DataJson) ?? [];
+        var isEmergencyAlert = data.TryGetValue("emergencyAlert", out var emergencyValue) &&
+            bool.TryParse(emergencyValue, out var emergencyFlag) && emergencyFlag;
         var wantsPush = await db.FeedPreferences.Where(p => p.UserId == notification.UserId)
             .Select(p => p.PushNotificationsEnabled).SingleOrDefaultAsync(ct);
-        if (!wantsPush)
+        if (!wantsPush && !isEmergencyAlert)
         {
             notification.DeliveryStatus = PushDeliveryStatus.NotRequired;
             await db.SaveChangesAsync(ct);
@@ -99,7 +113,6 @@ public sealed class NotificationDispatcher(CampusUpdateDbContext db, FirebasePus
             .Where(x => x.NotificationId == notification.Id && x.Status != PushDeliveryStatus.Sent &&
                 x.Attempts < 10 && x.DeviceInstallation.IsActive && (x.LastAttemptAt == null || x.LastAttemptAt <= retryAfter))
             .ToListAsync(ct);
-        var data = JsonSerializer.Deserialize<Dictionary<string, string>>(notification.DataJson) ?? [];
         data["notificationId"] = notification.Id.ToString();
         foreach (var delivery in deliveries)
         {
