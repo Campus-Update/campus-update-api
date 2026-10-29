@@ -29,7 +29,9 @@ public sealed class AcademicCalendar : Entity
 public enum AcademicCalendarStatus
 {
     Draft = 0,
-    Published = 1
+    Published = 1,
+    PendingApproval = 2,
+    Rejected = 3
 }
 
 public sealed class Faculty : Entity

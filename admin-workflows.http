@@ -1,0 +1,146 @@
+@baseUrl = http://localhost:5124/api/v1
+@leadToken = replace-with-lead-school-admin-token
+@superAdminToken = replace-with-super-admin-token
+@newsAdminToken = replace-with-news-admin-token
+@calendarAdminToken = replace-with-calendar-admin-token
+@institutionId = 00000000-0000-0000-0000-000000000001
+@administratorId = 00000000-0000-0000-0000-000000000002
+@contentId = 00000000-0000-0000-0000-000000000003
+@calendarId = 00000000-0000-0000-0000-000000000004
+
+### List delegated administrators
+GET {{baseUrl}}/admin/administrators
+Authorization: Bearer {{leadToken}}
+
+### Read a delegated administrator
+GET {{baseUrl}}/admin/administrators/{{administratorId}}
+Authorization: Bearer {{leadToken}}
+
+### Create a NewsAdmin or CalendarAdmin
+POST {{baseUrl}}/admin/administrators
+Authorization: Bearer {{leadToken}}
+Content-Type: application/json
+
+{
+  "email": "news.admin@example.test",
+  "password": "replace-with-a-secure-password",
+  "firstName": "Campus",
+  "lastName": "Editor",
+  "institutionId": "{{institutionId}}",
+  "role": "NewsAdmin"
+}
+
+### Change a delegated admin role or activation
+PATCH {{baseUrl}}/admin/administrators/{{administratorId}}
+Authorization: Bearer {{leadToken}}
+Content-Type: application/json
+
+{
+  "role": "CalendarAdmin",
+  "isActive": true
+}
+
+### Create a news or announcement draft
+POST {{baseUrl}}/content
+Authorization: Bearer {{newsAdminToken}}
+Content-Type: application/json
+
+{
+  "title": "Campus maintenance notice",
+  "body": "The library will close early on Friday.",
+  "summary": "Early library closure",
+  "type": "Announcement",
+  "urgency": "Normal",
+  "sourceType": "Official",
+  "sourceName": "Campus Update",
+  "eventStartsAt": null,
+  "eventEndsAt": null,
+  "eventLocation": null,
+  "registrationUrl": null,
+  "sponsorName": null,
+  "targetUrl": null,
+  "audiences": [
+    {
+      "institutionId": "{{institutionId}}",
+      "facultyId": null,
+      "departmentId": null,
+      "programmeId": null,
+      "academicLevelId": null,
+      "targetAudience": "All"
+    }
+  ]
+}
+
+### List content awaiting LeadSchoolAdmin review
+GET {{baseUrl}}/content/pending-approval?institutionId={{institutionId}}
+Authorization: Bearer {{leadToken}}
+
+### Submit an existing content draft
+PATCH {{baseUrl}}/content/{{contentId}}/status
+Authorization: Bearer {{newsAdminToken}}
+Content-Type: application/json
+
+{
+  "status": "PendingApproval"
+}
+
+### Approve pending content
+PATCH {{baseUrl}}/content/{{contentId}}/status
+Authorization: Bearer {{leadToken}}
+Content-Type: application/json
+
+{
+  "status": "Published"
+}
+
+### Reject pending content
+PATCH {{baseUrl}}/content/{{contentId}}/status
+Authorization: Bearer {{leadToken}}
+Content-Type: application/json
+
+{
+  "status": "Rejected"
+}
+
+### Create a calendar draft as CalendarAdmin
+POST {{baseUrl}}/calendar
+Authorization: Bearer {{calendarAdminToken}}
+Content-Type: application/json
+
+{
+  "institutionId": "{{institutionId}}",
+  "title": "2026/2027 Academic Calendar",
+  "academicSession": "2026/2027",
+  "imageUrl": "https://example.test/calendar.png",
+  "publishedAt": "2026-09-01T00:00:00Z",
+  "isOfficial": false,
+  "status": "Draft"
+}
+
+### Submit a calendar draft for approval
+POST {{baseUrl}}/calendar/{{calendarId}}/submit
+Authorization: Bearer {{calendarAdminToken}}
+
+### Approve and publish a pending calendar
+POST {{baseUrl}}/calendar/{{calendarId}}/publish
+Authorization: Bearer {{leadToken}}
+
+### Reject a pending calendar
+POST {{baseUrl}}/calendar/{{calendarId}}/reject
+Authorization: Bearer {{leadToken}}
+Content-Type: application/json
+
+{
+  "reason": "Please update the exam period before resubmitting."
+}
+
+### Publish an institution-wide emergency alert
+POST {{baseUrl}}/emergency-alerts
+Authorization: Bearer {{leadToken}}
+Content-Type: application/json
+
+{
+  "title": "Campus safety notice",
+  "body": "Please follow instructions from campus security.",
+  "summary": "Important campus safety instructions."
+}

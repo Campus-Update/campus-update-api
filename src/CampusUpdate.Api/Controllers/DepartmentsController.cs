@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CampusUpdate.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+[Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
 [Route("api/v1/departments")]
 public sealed class DepartmentsController(CampusUpdateDbContext db) : ControllerBase
 {
@@ -21,7 +21,7 @@ public sealed class DepartmentsController(CampusUpdateDbContext db) : Controller
     {
         var user = await CurrentUser(cancellationToken);
         if (user is null) return Unauthorized();
-        if (user.Role == UserRole.SchoolAdmin)
+        if (user.Role != UserRole.SuperAdmin)
         {
             if (institutionId.HasValue && institutionId.Value != user.InstitutionId) return Forbid();
             institutionId = user.InstitutionId;
@@ -50,7 +50,7 @@ public sealed class DepartmentsController(CampusUpdateDbContext db) : Controller
             .Include(x => x.Programmes).ThenInclude(x => x.Levels)
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (department is null ||
-            (user.Role == UserRole.SchoolAdmin && department.Faculty.InstitutionId != user.InstitutionId))
+            (user.Role != UserRole.SuperAdmin && department.Faculty.InstitutionId != user.InstitutionId))
             return NotFound();
         return Ok(ToResponse(department));
     }

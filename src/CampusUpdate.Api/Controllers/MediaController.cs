@@ -22,7 +22,7 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
     private const long MaxImageBytes = 5 * 1024 * 1024;
     private const long MaxPdfBytes = 10 * 1024 * 1024;
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost("content/{contentId:guid}")]
     [RequestSizeLimit(MaxPdfBytes)]
     public async Task<ActionResult<MediaUploadResponse>> Upload(Guid contentId, IFormFile file, CancellationToken cancellationToken)
@@ -36,6 +36,7 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
         var content = await db.ContentItems.Include(x => x.Audiences).SingleOrDefaultAsync(x => x.Id == contentId, cancellationToken);
         if (user is null) return Unauthorized();
         if (content is null) return NotFound();
+        if (!user.Role.CanManageContent(content.Type)) return Forbid();
         if (user.Role != UserRole.SuperAdmin && content.Audiences.Any(x => x.InstitutionId != user.InstitutionId)) return Forbid();
         var safeName = Path.GetFileName(file.FileName).Replace(" ", "-", StringComparison.Ordinal);
         var key = $"content/{contentId:N}/{Guid.NewGuid():N}-{safeName}";
@@ -50,7 +51,7 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
         return Created($"/api/v1/media/{attachment.Id}", new MediaUploadResponse(attachment.Id, safeName, file.ContentType, file.Length, url));
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost("calendar/{calendarId:guid}")]
     [RequestSizeLimit(6 * 1024 * 1024)]
     public async Task<ActionResult<AcademicCalendarResponse>> UploadCalendarImage(
@@ -59,9 +60,13 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Unauthorized();
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == userId && x.IsActive, cancellationToken);
         if (user is null) return Unauthorized();
+        if (!user.Role.CanManageCalendars()) return Forbid();
         var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == calendarId, cancellationToken);
         if (calendar is null) return NotFound();
         if (user.Role != UserRole.SuperAdmin && calendar.InstitutionId != user.InstitutionId) return Forbid();
+        if (user.Role == UserRole.CalendarAdmin &&
+            calendar.Status is not (AcademicCalendarStatus.Draft or AcademicCalendarStatus.Rejected))
+            return Forbid();
 
         var storedImage = await CalendarImageStorage.StoreAsync(file, calendar.InstitutionId, storage, cancellationToken);
         if (storedImage.Error is not null)
@@ -92,7 +97,8 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
         if (user is null) return Unauthorized();
         if (attachment is null) return NotFound();
         var visible = user.Role == UserRole.SuperAdmin ||
-            (user.Role == UserRole.SchoolAdmin && attachment.ContentItem.Audiences.Any(a => a.InstitutionId == user.InstitutionId)) ||
+            (user.Role.IsInstitutionAdministrator() && user.Role.CanManageContent(attachment.ContentItem.Type) &&
+             attachment.ContentItem.Audiences.Any(a => a.InstitutionId == user.InstitutionId)) ||
             (attachment.ContentItem.Status == ContentStatus.Published && attachment.ContentItem.Audiences.Any(a =>
                 a.InstitutionId == user.InstitutionId &&
                 (a.TargetAudience == TargetAudience.All || (a.TargetAudience == TargetAudience.Students && user.Role == UserRole.Student) || (a.TargetAudience == TargetAudience.Staff && user.Role == UserRole.Staff)) &&

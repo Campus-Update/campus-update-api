@@ -50,7 +50,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Ok(calendar);
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpGet("manage")]
     public async Task<ActionResult<IReadOnlyList<AcademicCalendarResponse>>> ListForManagement(
         [FromQuery] Guid? institutionId,
@@ -59,10 +59,11 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
     {
         var user = await GetCurrentUser(cancellationToken);
         if (user is null) return Unauthorized();
+        if (!user.Role.CanManageCalendars()) return Forbid();
         var selectedInstitutionId = user.Role == UserRole.SuperAdmin ? institutionId : user.InstitutionId;
         if (selectedInstitutionId is null) return BadRequest(new ProblemDetails { Title = "institutionId is required for SuperAdmin." });
         if (user.Role != UserRole.SuperAdmin && institutionId.HasValue && institutionId != user.InstitutionId) return Forbid();
-        if (!TryParseStatus(status, out var parsedStatus)) return BadRequest(new ProblemDetails { Title = "status must be Draft or Published." });
+        if (!TryParseStatus(status, out var parsedStatus)) return BadRequest(new ProblemDetails { Title = "status must be Draft, PendingApproval, Published or Rejected." });
 
         var query = db.AcademicCalendars.AsNoTracking().Where(x => x.InstitutionId == selectedInstitutionId.Value);
         if (parsedStatus.HasValue) query = query.Where(x => x.Status == parsedStatus.Value);
@@ -78,7 +79,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Ok(response);
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost]
     public async Task<ActionResult<AcademicCalendarResponse>> Create(
         CreateAcademicCalendarRequest request,
@@ -87,10 +88,16 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         var user = await GetCurrentUser(cancellationToken);
         if (user is null)
             return Unauthorized();
+        if (!user.Role.CanManageCalendars()) return Forbid();
         if (user.Role != UserRole.SuperAdmin && user.InstitutionId != request.InstitutionId)
             return Forbid();
         if (!TryParseStatus(request.Status, out var parsedStatus) || parsedStatus is null)
             return BadRequest(new ProblemDetails { Title = "status must be Draft or Published." });
+        if (parsedStatus is AcademicCalendarStatus.PendingApproval or AcademicCalendarStatus.Rejected)
+            return BadRequest(new ProblemDetails { Title = "Submit a draft for approval after creating it." });
+        if ((user.Role is UserRole.CalendarAdmin or UserRole.LeadSchoolAdmin) &&
+            parsedStatus != AcademicCalendarStatus.Draft)
+            return Forbid();
         if (parsedStatus == AcademicCalendarStatus.Published && !Uri.TryCreate(request.ImageUrl, UriKind.Absolute, out _))
             return BadRequest(new ProblemDetails { Title = "A valid imageUrl is required to publish a calendar." });
         if (!await db.Institutions.AnyAsync(
@@ -130,18 +137,30 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Created("/api/v1/calendar/latest", response);
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<AcademicCalendarResponse>> Replace(Guid id, CreateAcademicCalendarRequest request, CancellationToken cancellationToken)
     {
         var user = await GetCurrentUser(cancellationToken);
         if (user is null) return Unauthorized();
+        if (!user.Role.CanManageCalendars()) return Forbid();
         var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (calendar is null) return NotFound();
         if (user.Role != UserRole.SuperAdmin && (calendar.InstitutionId != user.InstitutionId || request.InstitutionId != user.InstitutionId)) return Forbid();
+        if (user.Role == UserRole.CalendarAdmin &&
+            (calendar.Status is not (AcademicCalendarStatus.Draft or AcademicCalendarStatus.Rejected) ||
+             !string.Equals(request.Status, "Draft", StringComparison.OrdinalIgnoreCase)))
+            return Forbid();
+        if (calendar.Status == AcademicCalendarStatus.PendingApproval &&
+            user.Role is not (UserRole.LeadSchoolAdmin or UserRole.SuperAdmin))
+            return Forbid();
         if (!await db.Institutions.AnyAsync(x => x.Id == request.InstitutionId && x.IsActive, cancellationToken)) return BadRequest();
         if (!TryParseStatus(request.Status, out var parsedStatus) || parsedStatus is null)
             return BadRequest(new ProblemDetails { Title = "status must be Draft or Published." });
+        if (parsedStatus is AcademicCalendarStatus.PendingApproval or AcademicCalendarStatus.Rejected)
+            return BadRequest(new ProblemDetails { Title = "Submit a draft for approval after saving it." });
+        if (user.Role == UserRole.LeadSchoolAdmin && parsedStatus == AcademicCalendarStatus.Published)
+            return Forbid();
         if (parsedStatus == AcademicCalendarStatus.Published &&
             string.IsNullOrWhiteSpace(request.ImageUrl) && string.IsNullOrWhiteSpace(calendar.ImageUrl))
             return BadRequest(new ProblemDetails { Title = "A valid imageUrl is required to publish a calendar." });
@@ -157,32 +176,128 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Ok(await ToSignedResponse(calendar, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,SuperAdmin")]
     [HttpPost("{id:guid}/publish")]
     public async Task<ActionResult<AcademicCalendarResponse>> Publish(Guid id, CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        if (!user.Role.CanManageCalendars()) return Forbid();
+        var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (calendar is null) return NotFound();
+        if (user.Role != UserRole.SuperAdmin && calendar.InstitutionId != user.InstitutionId) return Forbid();
+        if (user.Role == UserRole.LeadSchoolAdmin && calendar.Status != AcademicCalendarStatus.PendingApproval)
+            return Conflict(new ProblemDetails { Title = "LeadSchoolAdmins can only publish calendars pending their approval." });
+        if (calendar.Status == AcademicCalendarStatus.PendingApproval &&
+            user.Role is not (UserRole.LeadSchoolAdmin or UserRole.SuperAdmin))
+            return Forbid();
+        if (calendar.Status == AcademicCalendarStatus.Rejected)
+            return Conflict(new ProblemDetails { Title = "Rejected calendars must be revised and resubmitted before publishing." });
+        if (string.IsNullOrWhiteSpace(calendar.ImageUrl))
+            return BadRequest(new ProblemDetails { Title = "Add a calendar image before publishing." });
+        var previousStatus = calendar.Status;
+        var previous = await db.AcademicCalendars.Where(x => x.InstitutionId == calendar.InstitutionId && x.IsOfficial && x.Id != id).ToListAsync(cancellationToken);
+        foreach (var old in previous) old.IsOfficial = false;
+        calendar.Status = AcademicCalendarStatus.Published;
+        calendar.IsOfficial = true;
+        calendar.PublishedAt = DateTimeOffset.UtcNow;
+        db.AuditLogs.Add(new AuditLog
+        {
+            ActorId = user.Id,
+            Action = "CalendarPublished",
+            TargetId = calendar.Id,
+            InstitutionId = calendar.InstitutionId,
+            Details = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                targetType = "AcademicCalendar",
+                calendar.Title,
+                previousStatus,
+                currentStatus = AcademicCalendarStatus.Published
+            })
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(await ToSignedResponse(calendar, cancellationToken));
+    }
+
+    [Authorize(Roles = "LeadSchoolAdmin,SuperAdmin")]
+    [HttpPost("{id:guid}/reject")]
+    public async Task<ActionResult<AcademicCalendarResponse>> Reject(
+        Guid id,
+        RejectAcademicCalendarRequest request,
+        CancellationToken cancellationToken)
     {
         var user = await GetCurrentUser(cancellationToken);
         if (user is null) return Unauthorized();
         var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (calendar is null) return NotFound();
         if (user.Role != UserRole.SuperAdmin && calendar.InstitutionId != user.InstitutionId) return Forbid();
-        if (string.IsNullOrWhiteSpace(calendar.ImageUrl))
-            return BadRequest(new ProblemDetails { Title = "Add a calendar image before publishing." });
-        var previous = await db.AcademicCalendars.Where(x => x.InstitutionId == calendar.InstitutionId && x.IsOfficial && x.Id != id).ToListAsync(cancellationToken);
-        foreach (var old in previous) old.IsOfficial = false;
-        calendar.Status = AcademicCalendarStatus.Published;
-        calendar.IsOfficial = true;
-        calendar.PublishedAt = DateTimeOffset.UtcNow;
+        if (calendar.Status != AcademicCalendarStatus.PendingApproval)
+            return Conflict(new ProblemDetails { Title = "Only pending calendars can be rejected." });
+        if (string.IsNullOrWhiteSpace(request.Reason))
+            return BadRequest(new ProblemDetails { Title = "A rejection reason is required." });
+
+        calendar.Status = AcademicCalendarStatus.Rejected;
+        calendar.IsOfficial = false;
+        db.AuditLogs.Add(new AuditLog
+        {
+            ActorId = user.Id,
+            Action = "CalendarRejected",
+            TargetId = calendar.Id,
+            InstitutionId = calendar.InstitutionId,
+            Details = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                targetType = "AcademicCalendar",
+                calendar.Title,
+                reason = request.Reason.Trim()
+            })
+        });
         await db.SaveChangesAsync(cancellationToken);
         return Ok(await ToSignedResponse(calendar, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "CalendarAdmin")]
+    [HttpPost("{id:guid}/submit")]
+    public async Task<ActionResult<AcademicCalendarResponse>> SubmitForApproval(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (calendar is null) return NotFound();
+        if (calendar.InstitutionId != user.InstitutionId) return Forbid();
+        if (calendar.Status != AcademicCalendarStatus.Draft)
+            return Conflict(new ProblemDetails { Title = "Only calendar drafts can be submitted for approval." });
+        if (string.IsNullOrWhiteSpace(calendar.ImageUrl))
+            return BadRequest(new ProblemDetails { Title = "Add a calendar image before submitting it." });
+
+        calendar.Status = AcademicCalendarStatus.PendingApproval;
+        calendar.IsOfficial = false;
+        db.AuditLogs.Add(new AuditLog
+        {
+            ActorId = user.Id,
+            Action = "CalendarSubmittedForApproval",
+            TargetId = calendar.Id,
+            InstitutionId = calendar.InstitutionId,
+            Details = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                targetType = "AcademicCalendar",
+                calendar.Title,
+                previousStatus = AcademicCalendarStatus.Draft,
+                currentStatus = calendar.Status
+            })
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(await ToSignedResponse(calendar, cancellationToken));
+    }
+
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteDraft(Guid id, CancellationToken cancellationToken)
     {
         var user = await GetCurrentUser(cancellationToken);
         if (user is null) return Unauthorized();
+        if (!user.Role.CanManageCalendars()) return Forbid();
         var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (calendar is null) return NotFound();
         if (user.Role != UserRole.SuperAdmin && calendar.InstitutionId != user.InstitutionId) return Forbid();
@@ -193,7 +308,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return NoContent();
     }
 
-    [Authorize(Roles = "SchoolAdmin,SuperAdmin")]
+    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost("upload")]
     [RequestSizeLimit(6 * 1024 * 1024)]
     public async Task<ActionResult<AcademicCalendarResponse>> Upload(
@@ -201,9 +316,15 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
     {
         var user = await GetCurrentUser(cancellationToken);
         if (user is null) return Unauthorized();
+        if (!user.Role.CanManageCalendars()) return Forbid();
         if (user.Role != UserRole.SuperAdmin && request.InstitutionId != user.InstitutionId) return Forbid();
         if (!TryParseStatus(request.Status, out var parsedStatus) || parsedStatus is null)
             return BadRequest(new ProblemDetails { Title = "status must be Draft or Published." });
+        if (parsedStatus is AcademicCalendarStatus.PendingApproval or AcademicCalendarStatus.Rejected)
+            return BadRequest(new ProblemDetails { Title = "Submit a draft for approval after uploading it." });
+        if ((user.Role is UserRole.CalendarAdmin or UserRole.LeadSchoolAdmin) &&
+            parsedStatus != AcademicCalendarStatus.Draft)
+            return Forbid();
         if (!await db.Institutions.AnyAsync(i => i.Id == request.InstitutionId && i.IsActive, cancellationToken))
             return BadRequest(new ProblemDetails { Title = "The selected institution is invalid." });
         AcademicCalendar? editedCalendar = null;
@@ -212,6 +333,12 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
             editedCalendar = await db.AcademicCalendars.SingleOrDefaultAsync(c => c.Id == request.CalendarId.Value, cancellationToken);
             if (editedCalendar is null) return NotFound();
             if (editedCalendar.InstitutionId != request.InstitutionId) return Forbid();
+            if (user.Role == UserRole.CalendarAdmin &&
+                editedCalendar.Status is not (AcademicCalendarStatus.Draft or AcademicCalendarStatus.Rejected))
+                return Forbid();
+            if (editedCalendar.Status == AcademicCalendarStatus.PendingApproval &&
+                user.Role is not (UserRole.LeadSchoolAdmin or UserRole.SuperAdmin))
+                return Forbid();
         }
         var storedImage = await CalendarImageStorage.StoreAsync(request.File, request.InstitutionId, storage, cancellationToken);
         if (storedImage.Error is not null)

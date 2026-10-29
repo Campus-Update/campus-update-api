@@ -1,6 +1,6 @@
 # Foundation API additions
 
-All HTTP routes use `/api/v1`. JWT role values are `Student`, `Staff`, `SchoolAdmin`, `SuperAdmin`. Existing authentication and content contracts remain in place. Development Swagger is available at `/swagger`.
+All HTTP routes use `/api/v1`. JWT role values are `Student`, `Staff`, `SchoolAdmin`, `LeadSchoolAdmin`, `NewsAdmin`, `CalendarAdmin`, and `SuperAdmin`. Existing authentication and content contracts remain in place. Development Swagger is available at `/swagger`.
 
 ## Notifications and analytics
 
@@ -10,28 +10,37 @@ Authenticated mobile clients register or deactivate FCM devices with `POST /devi
 | --- | --- | --- |
 | POST `/admin/schools` | SuperAdmin | `{name, slug, state, isActive}`; 201 with institution ID and fields; duplicate slug 409 |
 | POST `/admin/users` | SuperAdmin | `{email, password, firstName, lastName, institutionId}`; creates a SchoolAdmin for an active institution, 201 without credentials; duplicate email 409 |
-| PATCH `/admin/users/{id}` | SuperAdmin | `{role, isActive}`; roles Student/Staff/SchoolAdmin only; invalidates refresh token; 200 without credentials |
+| PATCH `/admin/users/{id}` | SuperAdmin | `{role, isActive}`; assigns Student, Staff, SchoolAdmin, LeadSchoolAdmin, NewsAdmin, or CalendarAdmin; invalidates refresh token; 200 without credentials |
 | GET `/admin/content/pending` | SuperAdmin | Lists PendingApproval content; optional `institutionId`, `type`, `search`, `page`, `pageSize`; paginated response includes content, event, author, and audience details |
+| GET `/admin/administrators` | LeadSchoolAdmin, SuperAdmin | Lists NewsAdmin and CalendarAdmin accounts; SuperAdmins also see LeadSchoolAdmins; LeadSchoolAdmins are limited to their institution; SuperAdmins can filter by `institutionId` |
+| GET `/admin/administrators/{id}` | LeadSchoolAdmin, SuperAdmin | Reads a delegated administrator in the caller's permitted institution scope |
+| POST `/admin/administrators` | LeadSchoolAdmin, SuperAdmin | Creates a NewsAdmin or CalendarAdmin with `{email, password, firstName, lastName, institutionId, role}`; only SuperAdmins can create LeadSchoolAdmins; LeadSchoolAdmins can only assign roles in their institution; password requires at least 12 characters |
+| PATCH `/admin/administrators/{id}` | LeadSchoolAdmin, SuperAdmin | Changes a delegated admin's role between NewsAdmin and CalendarAdmin or activates/deactivates the account; only SuperAdmins can assign LeadSchoolAdmin; invalidates its refresh token |
+| GET `/content/pending-approval` | LeadSchoolAdmin, SuperAdmin | Lists pending content; supports optional `institutionId` and `type`; LeadSchoolAdmins are limited to their institution |
+| POST `/emergency-alerts` | LeadSchoolAdmin, SuperAdmin | Publishes an urgent announcement to active students and staff in the sender's institution and immediately queues notifications, regardless of announcement/push preferences |
 | GET `/admin/platform-settings` | SuperAdmin | Reads platform name, support contacts, maintenance mode, listing fee, invoice days and event payment hold setting; returns defaults until saved |
 | PUT `/admin/platform-settings` | SuperAdmin | Saves the same settings; request fields: `platformName`, `supportEmail`, `supportPhone`, `maintenanceMode`, `listingFee`, `invoiceDays`, `holdEventsUntilPayment` |
-| GET `/institution/stats` | SchoolAdmin, SuperAdmin | SchoolAdmins see counts and distinct students reached for their own institution; SuperAdmins see platform-wide totals |
-| POST `/media/calendar/{calendarId}` | SchoolAdmin, SuperAdmin | Uploads/replaces the calendar image using multipart field `file`; stores the media URL on the calendar and returns the calendar with a signed `imageUrl`; SchoolAdmins are restricted to their institution |
-| GET `/departments?institutionId={id}` | SchoolAdmin, SuperAdmin | Lists departments with faculty, institution, programme and academic-level details; SchoolAdmins are scoped to their institution |
-| GET `/departments/{id}` | SchoolAdmin, SuperAdmin | Reads one department in the caller's permitted institution scope |
-| GET `/auth/notification-preferences` | SchoolAdmin, SuperAdmin | Reads the caller's email/push toggles and summary cadence |
-| PUT `/auth/notification-preferences` | SchoolAdmin, SuperAdmin | Saves `{emailNotificationsEnabled, pushNotificationsEnabled, summaryCadence}`; cadence is `Immediate`, `Daily`, `Weekly`, or `Never` |
+| POST `/calendar/{id}/submit` | CalendarAdmin | Submits a calendar draft for LeadSchoolAdmin review |
+| POST `/calendar/{id}/publish` | SchoolAdmin, LeadSchoolAdmin, SuperAdmin | Publishes a calendar; only LeadSchoolAdmins and SuperAdmins can approve a `PendingApproval` calendar |
+| POST `/calendar/{id}/reject` | LeadSchoolAdmin, SuperAdmin | Rejects a pending calendar with a required `reason`; the calendar admin can revise and resubmit it |
+| GET `/institution/stats` | SchoolAdmin, LeadSchoolAdmin, NewsAdmin, CalendarAdmin, SuperAdmin | Institution-scoped admins see their own institution; SuperAdmins see platform-wide totals |
+| POST `/media/calendar/{calendarId}` | SchoolAdmin, LeadSchoolAdmin, CalendarAdmin, SuperAdmin | Uploads/replaces a calendar image using multipart field `file`; CalendarAdmins can update drafts and rejected calendars; SchoolAdmins and LeadSchoolAdmins are restricted to their institution |
+| GET `/departments?institutionId={id}` | SchoolAdmin, LeadSchoolAdmin, NewsAdmin, CalendarAdmin, SuperAdmin | Lists departments with faculty, institution, programme and academic-level details; institution admins are scoped to their institution |
+| GET `/departments/{id}` | SchoolAdmin, LeadSchoolAdmin, NewsAdmin, CalendarAdmin, SuperAdmin | Reads one department in the caller's permitted institution scope |
+| GET `/auth/notification-preferences` | SchoolAdmin, LeadSchoolAdmin, NewsAdmin, CalendarAdmin, SuperAdmin | Reads the caller's email/push toggles and summary cadence |
+| PUT `/auth/notification-preferences` | SchoolAdmin, LeadSchoolAdmin, NewsAdmin, CalendarAdmin, SuperAdmin | Saves `{emailNotificationsEnabled, pushNotificationsEnabled, summaryCadence}`; cadence is `Immediate`, `Daily`, `Weekly`, or `Never` |
 | PUT `/auth/academic-settings` | Authenticated active user | Existing fields plus optional `allCampusFeed` (default false) |
 | GET `/auth/profile` | Authenticated active user | Existing profile fields plus `allCampusFeed` |
 
 Administrator passwords require at least 12 characters. School name/state are required and bounded; slugs contain lowercase letters, numbers and single hyphen separators. Initial super-admin creation is an operator command documented in `environments.md`, not an HTTP route. This API cannot create or modify other super administrators.
 
-Authentication validates signature, issuer, audience, expiry and the current user's active status and role. A disabled/deleted account or stale role token receives 401. Authenticated users outside the roles permitted for an admin route receive 403. SchoolAdmins see only their institution's statistics and cannot change their own assigned institution. New administrator operations create audit records in the same database save; records contain actor, action, target, institution, timestamp and non-secret change details.
+Authentication validates signature, issuer, audience, expiry and the current user's active status and role. A disabled/deleted account or stale role token receives 401. Authenticated users outside the roles permitted for an admin route receive 403. SchoolAdmins and delegated institution admins see only their institution's statistics and cannot change their assigned institution. LeadSchoolAdmins can create, reassign, activate, and deactivate only NewsAdmin and CalendarAdmin accounts within their institution; only SuperAdmins can create or promote a LeadSchoolAdmin. New administrator, publication, rejection, and emergency-alert operations create audit records in the same database save; records contain actor, action, target, institution, timestamp and non-secret change details.
 
-Personalized feeds match the user's academic hierarchy; all-campus feeds include published content throughout the same institution. The preference never enables cross-school access. Direct content reads follow the same scope; school administrators may review unpublished content only in their own institution. Foreign or inaccessible content returns 404. Audience creation checks institution/faculty/department/programme/level relationships, rejecting invalid combinations with 400.
+Personalized feeds match the user's academic hierarchy; all-campus feeds include published content throughout the same institution. The preference never enables cross-school access. Emergency alerts are persisted as Urgent published announcements and bypass announcement/push preferences for active student and staff recipients in the originating institution. Direct content reads follow the same scope; administrators may review unpublished content only in their own institution and delegated roles only see content types they manage. Foreign or inaccessible content returns 404. Audience creation checks institution/faculty/department/programme/level relationships, rejecting invalid combinations with 400.
 
 SuperAdmin moderation reach and `views` are based on durable unique `ContentViews` records. Student/staff detail requests to `GET /content/{id}` create those records; listing feed items alone does not count a view. `GET /content` returns all statuses in the caller's institution for SchoolAdmins and supports an optional `status` filter, while student/staff feeds remain published-only. Content responses include event, advertisement, image and timestamp fields. The platform stats response currently treats inactive institutions as pending verification because the schema has no separate verification status yet.
 
-Content creation produces drafts. Publishing, media uploads, advertisement moderation, notification delivery and analytics are implemented. Cloud delivery requires the deployment credentials described in environments.md.
+NewsAdmins can create and submit news/announcements; CalendarAdmins can create and submit event posts and academic-calendar drafts; LeadSchoolAdmins approve/reject pending news, announcements, and calendars. Existing SchoolAdmin permissions remain available for backward compatibility. Content creation produces drafts. Calendar states are Draft, PendingApproval, Published, and Rejected. Publishing, media uploads, advertisement moderation, notification delivery and analytics are implemented. Cloud delivery requires the deployment credentials described in environments.md.
 
 Apply the pending EF migrations before deploying. `AddPlatformSettingsAndNotificationPreferences` creates persistent platform settings and adds the super-admin email/push preference fields and summary cadence to user preferences.
 

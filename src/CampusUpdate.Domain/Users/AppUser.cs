@@ -8,7 +8,10 @@ public enum UserRole
     Student,
     Staff,
     SchoolAdmin,
-    SuperAdmin
+    SuperAdmin,
+    LeadSchoolAdmin,
+    NewsAdmin,
+    CalendarAdmin
 }
 
 public enum NotificationSummaryCadence

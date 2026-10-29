@@ -92,7 +92,9 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
                 x.Id, x.Name, x.Slug, x.State, x.Acronym, x.LogoUrl, x.IsActive,
                 db.Users.Count(u => u.InstitutionId == x.Id && u.Role == UserRole.Student),
                 db.Users.Count(u => u.InstitutionId == x.Id && u.Role == UserRole.Staff),
-                db.Users.Count(u => u.InstitutionId == x.Id && u.Role == UserRole.SchoolAdmin),
+                db.Users.Count(u => u.InstitutionId == x.Id &&
+                    (u.Role == UserRole.SchoolAdmin || u.Role == UserRole.LeadSchoolAdmin ||
+                     u.Role == UserRole.NewsAdmin || u.Role == UserRole.CalendarAdmin)),
                 db.ContentItems.Count(c => c.Status == ContentStatus.Published &&
                     c.Audiences.Any(a => a.InstitutionId == x.Id)),
                 db.UserActivities.Where(a => a.InstitutionId == x.Id && a.UserId != null && a.OccurredAt >= activeSince)
@@ -112,7 +114,9 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
 
         var studentCount = await db.Users.CountAsync(x => x.InstitutionId == id && x.Role == UserRole.Student, cancellationToken);
         var staffCount = await db.Users.CountAsync(x => x.InstitutionId == id && x.Role == UserRole.Staff, cancellationToken);
-        var adminCount = await db.Users.CountAsync(x => x.InstitutionId == id && x.Role == UserRole.SchoolAdmin, cancellationToken);
+        var adminCount = await db.Users.CountAsync(x => x.InstitutionId == id &&
+            (x.Role == UserRole.SchoolAdmin || x.Role == UserRole.LeadSchoolAdmin ||
+             x.Role == UserRole.NewsAdmin || x.Role == UserRole.CalendarAdmin), cancellationToken);
         var liveContentCount = await db.ContentItems.CountAsync(x => x.Status == ContentStatus.Published &&
             x.Audiences.Any(a => a.InstitutionId == id), cancellationToken);
         var faculties = school.Faculties.OrderBy(x => x.Name).Select(f => new FacultyResponse(
@@ -381,8 +385,9 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
     [HttpPatch("users/{id:guid}")]
     public async Task<ActionResult<AdminUserResponse>> UpdateUser(Guid id, UpdateAdminUserRequest request, CancellationToken cancellationToken)
     {
-        if (request.Role is not (UserRole.Student or UserRole.Staff or UserRole.SchoolAdmin))
-            return BadRequest(new ProblemDetails { Title = "Only Student, Staff, and SchoolAdmin roles can be assigned here." });
+        if (request.Role is not (UserRole.Student or UserRole.Staff or UserRole.SchoolAdmin or
+            UserRole.LeadSchoolAdmin or UserRole.NewsAdmin or UserRole.CalendarAdmin))
+            return BadRequest(new ProblemDetails { Title = "The requested role cannot be assigned here." });
         var user = await db.Users.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (user is null)
             return NotFound();
@@ -412,8 +417,9 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
     private static string GetTargetType(string action) => action switch
     {
         "SchoolCreated" => "Institution",
-        "SchoolAdminCreated" or "UserAccessUpdated" => "User",
-        "ContentCreated" or "ContentUpdated" or "ContentStatusChanged" or "ContentArchived" => "Content",
+        "SchoolAdminCreated" or "InstitutionAdministratorCreated" or "InstitutionAdministratorUpdated" or "UserAccessUpdated" => "User",
+        "CalendarSubmittedForApproval" or "CalendarPublished" or "CalendarRejected" => "AcademicCalendar",
+        "ContentCreated" or "ContentUpdated" or "ContentStatusChanged" or "ContentArchived" or "EmergencyAlertPublished" => "Content",
         _ => "Unknown"
     };
 
@@ -428,8 +434,11 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
         return action switch
         {
             "SchoolCreated" => "School",
-            "SchoolAdminCreated" => "User",
+            "SchoolAdminCreated" or "InstitutionAdministratorCreated" => "User",
             "UserAccessUpdated" => "Access",
+            "InstitutionAdministratorUpdated" => "Access",
+            "CalendarSubmittedForApproval" or "CalendarPublished" or "CalendarRejected" => "Calendar",
+            "EmergencyAlertPublished" => "Emergency alert",
             _ => "Access"
         };
     }
