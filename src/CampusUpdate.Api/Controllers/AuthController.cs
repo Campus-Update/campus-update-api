@@ -287,6 +287,7 @@ public sealed class AuthController(
                         nameof(UserRole.NewsAdmin) + "," + nameof(UserRole.CalendarAdmin) + "," +
                         nameof(UserRole.SuperAdmin))]
     [HttpGet("notification-preferences")]
+    [HttpGet("notification-preference")]
     public async Task<ActionResult<NotificationPreferencesResponse>> GetNotificationPreferences(
         CancellationToken cancellationToken)
     {
@@ -299,6 +300,7 @@ public sealed class AuthController(
                         nameof(UserRole.NewsAdmin) + "," + nameof(UserRole.CalendarAdmin) + "," +
                         nameof(UserRole.SuperAdmin))]
     [HttpPut("notification-preferences")]
+    [HttpPut("notification-preference")]
     public async Task<ActionResult<NotificationPreferencesResponse>> UpdateNotificationPreferences(
         NotificationPreferencesRequest request,
         CancellationToken cancellationToken)

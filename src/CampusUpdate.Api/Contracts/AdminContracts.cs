@@ -88,6 +88,13 @@ public sealed record CreateSchoolAdminRequest(
     [Required, MaxLength(100)] string LastName,
     Guid InstitutionId);
 
+public sealed record CreateInitialLeadSchoolAdminRequest(
+    [Required, EmailAddress] string Email,
+    [Required, MinLength(12)] string Password,
+    [Required, MaxLength(100)] string FirstName,
+    [Required, MaxLength(100)] string LastName,
+    Guid InstitutionId);
+
 public sealed record CreateInstitutionAdministratorRequest(
     [Required, EmailAddress] string Email,
     [Required, MinLength(12)] string Password,

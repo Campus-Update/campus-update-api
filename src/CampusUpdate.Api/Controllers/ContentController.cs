@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using CampusUpdate.Api.Contracts;
 using CampusUpdate.Domain.Content;
 using CampusUpdate.Domain.Users;
@@ -181,6 +182,9 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (item is null) return NotFound();
         if (!user.Role.CanManageContent(item.Type)) return Forbid();
         if (user.Role != UserRole.SuperAdmin && item.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
+        if (item.Type == ContentType.Announcement && request.Urgency == UrgencyLevel.Urgent &&
+            user.Role != UserRole.LeadSchoolAdmin)
+            return Forbid();
         if (item.Status is ContentStatus.Published or ContentStatus.Archived) return Conflict(new ProblemDetails { Title = "Published content must be archived before editing." });
         var previousStatus = item.Status;
         if (request.Audiences.Count == 0 || (user.Role != UserRole.SuperAdmin && request.Audiences.Any(a => a.InstitutionId != user.InstitutionId))) return Forbid();
@@ -212,7 +216,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (user.Role != UserRole.SuperAdmin && item.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
         var allowed = request.Status switch
         {
-            ContentStatus.PendingApproval => item.Status == ContentStatus.Draft,
+            ContentStatus.PendingApproval => user.Role != UserRole.LeadSchoolAdmin && item.Status == ContentStatus.Draft,
             ContentStatus.Published => (user.Role is UserRole.SuperAdmin or UserRole.LeadSchoolAdmin) && item.Status == ContentStatus.PendingApproval,
             ContentStatus.Rejected => (user.Role is UserRole.SuperAdmin or UserRole.LeadSchoolAdmin) && item.Status == ContentStatus.PendingApproval,
             ContentStatus.Archived => item.Status == ContentStatus.Published,
@@ -245,8 +249,8 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         await db.SaveChangesAsync(cancellationToken); return NoContent();
     }
 
-    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
-    [HttpPost]
+    [Authorize(Roles = "SchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+    [HttpPost("json")]
     public async Task<ActionResult<ContentResponse>> Create(CreateContentRequest request, CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var authorId))
@@ -255,6 +259,9 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (author is null)
             return Unauthorized();
         if (!author.Role.CanManageContent(request.Type))
+            return Forbid();
+        if (request.Type == ContentType.Announcement && request.Urgency == UrgencyLevel.Urgent &&
+            author.Role != UserRole.LeadSchoolAdmin)
             return Forbid();
         if (request.Audiences.Count == 0)
             return BadRequest(new ProblemDetails { Title = "At least one audience is required." });
@@ -305,6 +312,84 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         await db.SaveChangesAsync(cancellationToken);
         var response = await ToResponseAsync(item, cancellationToken);
         return CreatedAtAction(nameof(GetById), new { id = item.Id }, response);
+    }
+
+    /// <summary>Creates a content item and uploads its cover image in one multipart request.</summary>
+    [Authorize(Roles = "SchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+    [HttpPost]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    public async Task<ActionResult<ContentResponse>> CreateWithImage(
+        [FromForm] CreateContentWithImageRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Image is null || request.Image.Length is <= 0 or > 5 * 1024 * 1024)
+            return BadRequest(new ProblemDetails { Title = "The image must be between 1 byte and 5 MB." });
+
+        string detectedContentType;
+        try
+        {
+            await using var imageStream = request.Image.OpenReadStream();
+            var info = new ImageMagick.MagickImageInfo(imageStream);
+            if (info.Format is not (ImageMagick.MagickFormat.Png or ImageMagick.MagickFormat.Jpeg or ImageMagick.MagickFormat.WebP) ||
+                (long)info.Width * info.Height > 40_000_000)
+                return BadRequest(new ProblemDetails { Title = "Upload a valid PNG, JPEG or WebP image up to 40 megapixels." });
+            detectedContentType = info.Format switch
+            {
+                ImageMagick.MagickFormat.Png => "image/png",
+                ImageMagick.MagickFormat.WebP => "image/webp",
+                _ => "image/jpeg"
+            };
+        }
+        catch (ImageMagick.MagickException)
+        {
+            return BadRequest(new ProblemDetails { Title = "Upload a valid PNG, JPEG or WebP image." });
+        }
+
+        IReadOnlyCollection<AudienceRequest>? audiences;
+        try
+        {
+            audiences = JsonSerializer.Deserialize<List<AudienceRequest>>(
+                request.AudiencesJson,
+                new JsonSerializerOptions { Converters = { new JsonStringEnumConverter() } });
+        }
+        catch (JsonException)
+        {
+            return BadRequest(new ProblemDetails { Title = "audiencesJson must be a JSON array of audience objects." });
+        }
+        if (audiences is null)
+            return BadRequest(new ProblemDetails { Title = "audiencesJson must be a JSON array of audience objects." });
+
+        var contentRequest = new CreateContentRequest(
+            request.Title, request.Body, request.Summary, request.Type!.Value,
+            request.Urgency!.Value, request.SourceType!.Value, request.SourceName,
+            request.EventStartsAt, request.EventEndsAt, request.EventLocation,
+            request.RegistrationUrl, request.SponsorName, request.TargetUrl,
+            audiences, request.Category);
+        var created = await Create(contentRequest, cancellationToken);
+        if (created.Result is not CreatedAtActionResult createdResult ||
+            createdResult.RouteValues?.GetValueOrDefault("id") is not Guid contentId)
+            return created;
+
+        var content = await db.ContentItems.Include(x => x.Audiences)
+            .SingleAsync(x => x.Id == contentId, cancellationToken);
+        var safeName = Path.GetFileName(request.Image.FileName).Replace(" ", "-", StringComparison.Ordinal);
+        var key = $"content/{contentId:N}/{Guid.NewGuid():N}-{safeName}";
+        await using (var stream = request.Image.OpenReadStream())
+            await mediaStorage.UploadAsync(stream, key, detectedContentType, request.Image.Length, cancellationToken);
+        db.ContentAttachments.Add(new ContentAttachment
+        {
+            ContentItemId = contentId,
+            FileName = safeName,
+            Url = key,
+            ContentType = detectedContentType,
+            SizeBytes = request.Image.Length
+        });
+        content.CoverImageUrl = key;
+        await db.SaveChangesAsync(cancellationToken);
+
+        var response = await ToResponseAsync(content, cancellationToken);
+        return CreatedAtAction(nameof(GetById), new { id = contentId }, response);
     }
 
     [Authorize]

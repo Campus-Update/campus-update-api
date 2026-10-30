@@ -300,7 +300,7 @@ public sealed class AccessControlTests : IDisposable
     public async Task CalendarReadsStayWithinTheUsersSchool()
     {
         Login(UserRole.SuperAdmin);
-        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/calendar",
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/calendar/json",
             new CreateAcademicCalendarRequest(_factory.OtherSchoolId, "Foreign calendar", "2026/2027",
                 "https://example.com/calendar.png", DateTimeOffset.UtcNow))).StatusCode);
         Login(UserRole.Student);
@@ -329,7 +329,7 @@ public sealed class AccessControlTests : IDisposable
     public async Task ReadersCannotCreateContentOrReadDrafts(UserRole role)
     {
         Login(role);
-        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.SchoolId))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.SchoolId))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/v1/content/{_factory.DraftId}")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/content/{_factory.PublishedId}")).StatusCode);
     }
@@ -339,10 +339,10 @@ public sealed class AccessControlTests : IDisposable
     {
         Login(UserRole.SchoolAdmin);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/v1/content/{_factory.DraftId}")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.OtherSchoolId))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/calendar",
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.OtherSchoolId))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/calendar/json",
             new CreateAcademicCalendarRequest(_factory.OtherSchoolId, "Calendar", "2026/2027", "https://example.com/calendar.png", DateTimeOffset.UtcNow))).StatusCode);
-        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.SchoolId))).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.SchoolId))).StatusCode);
     }
 
     [Fact]
@@ -355,7 +355,7 @@ public sealed class AccessControlTests : IDisposable
             UrgencyLevel.Normal, SourceType.Official, "Osun State University", startsAt, endsAt, "Main hall",
             "https://example.test/register", null, null,
             [new AudienceRequest(_factory.SchoolId, null, null, null, null)], "Events");
-        var createdResponse = await _client.PostAsJsonAsync("/api/v1/content", eventRequest);
+        var createdResponse = await _client.PostAsJsonAsync("/api/v1/content/json", eventRequest);
         Assert.Equal(HttpStatusCode.Created, createdResponse.StatusCode);
         var created = await createdResponse.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
         Assert.NotNull(created);
@@ -380,7 +380,7 @@ public sealed class AccessControlTests : IDisposable
     public async Task SchoolAdminCanUpdateDraftWithoutReplacingItsExistingAudienceRow()
     {
         Login(UserRole.SchoolAdmin);
-        var create = await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.SchoolId));
+        var create = await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.SchoolId));
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var created = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
         Assert.NotNull(created);
@@ -413,7 +413,7 @@ public sealed class AccessControlTests : IDisposable
         Login(UserRole.SchoolAdmin);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PutAsJsonAsync("/api/v1/auth/academic-settings",
             Settings(_factory.OtherSchoolId))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.OtherSchoolId))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.OtherSchoolId))).StatusCode);
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public sealed class AccessControlTests : IDisposable
         {
             Audiences = [new AudienceRequest(_factory.SchoolId, _factory.ForeignFacultyId, null, null, null)]
         };
-        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/content", request)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/content/json", request)).StatusCode);
     }
 
     [Fact]
@@ -479,7 +479,7 @@ public sealed class AccessControlTests : IDisposable
         else user.Role = UserRole.Student;
         await db.SaveChangesAsync();
         Assert.Equal(HttpStatusCode.Unauthorized, (await _client.GetAsync("/api/v1/feed")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.SchoolId))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.SchoolId))).StatusCode);
     }
 
     [Fact]
@@ -490,10 +490,10 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(HttpStatusCode.Created, schoolResponse.StatusCode);
         var school = await schoolResponse.Content.ReadFromJsonAsync<AdminSchoolResponse>();
         var adminResponse = await _client.PostAsJsonAsync("/api/v1/admin/users",
-            new CreateSchoolAdminRequest("new-admin@example.test", "test-password-123", "School", "Admin", school!.Id));
+            new CreateInitialLeadSchoolAdminRequest("new-admin@example.test", "test-password-123", "School", "Admin", school!.Id));
         Assert.Equal(HttpStatusCode.Created, adminResponse.StatusCode);
         var admin = await adminResponse.Content.ReadFromJsonAsync<AdminUserResponse>(JsonOptions);
-        Assert.Equal(UserRole.SchoolAdmin, admin!.Role);
+        Assert.Equal(UserRole.LeadSchoolAdmin, admin!.Role);
         Assert.Equal(school.Id, admin.InstitutionId);
         Assert.Equal(HttpStatusCode.OK, (await _client.PatchAsJsonAsync($"/api/v1/admin/users/{admin.Id}",
             new UpdateAdminUserRequest(UserRole.Staff, false))).StatusCode);
@@ -541,6 +541,8 @@ public sealed class AccessControlTests : IDisposable
         var initial = await _client.GetFromJsonAsync<NotificationPreferencesResponse>("/api/v1/auth/notification-preferences", JsonOptions);
         Assert.NotNull(initial);
         Assert.Equal(NotificationSummaryCadence.Immediate, initial.SummaryCadence);
+        Assert.Equal(HttpStatusCode.OK,
+            (await _client.GetAsync("/api/v1/auth/notification-preference")).StatusCode);
 
         var request = new NotificationPreferencesRequest(false, true, NotificationSummaryCadence.Weekly);
         var response = await _client.PutAsJsonAsync("/api/v1/auth/notification-preferences", request);
@@ -551,11 +553,11 @@ public sealed class AccessControlTests : IDisposable
 
         Login(UserRole.SchoolAdmin);
         var schoolAdminInitial = await _client.GetFromJsonAsync<NotificationPreferencesResponse>(
-            "/api/v1/auth/notification-preferences", JsonOptions);
+            "/api/v1/auth/notification-preference", JsonOptions);
         Assert.NotNull(schoolAdminInitial);
         var schoolAdminRequest = new NotificationPreferencesRequest(true, false, NotificationSummaryCadence.Daily);
         var schoolAdminUpdate = await _client.PutAsJsonAsync(
-            "/api/v1/auth/notification-preferences", schoolAdminRequest);
+            "/api/v1/auth/notification-preference", schoolAdminRequest);
         Assert.Equal(HttpStatusCode.OK, schoolAdminUpdate.StatusCode);
         var schoolAdminSaved = await schoolAdminUpdate.Content.ReadFromJsonAsync<NotificationPreferencesResponse>(JsonOptions);
         Assert.NotNull(schoolAdminSaved);
@@ -566,6 +568,8 @@ public sealed class AccessControlTests : IDisposable
         Login(UserRole.Student);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await _client.GetAsync("/api/v1/auth/notification-preferences")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync("/api/v1/auth/notification-preference")).StatusCode);
     }
 
     [Fact]
@@ -619,6 +623,14 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(1, stats.ActiveInstitutions);
         Assert.Equal(1, stats.PendingVerificationInstitutions);
         Assert.Equal(1, stats.StudentsReached);
+        var institutions = await _client.GetFromJsonAsync<InstitutionAdminResponse[]>(
+            "/api/v1/institutions", JsonOptions);
+        Assert.NotNull(institutions);
+        Assert.Equal(2, institutions.Length);
+        var otherInstitutionDetail = await _client.GetFromJsonAsync<InstitutionAdminResponse>(
+            $"/api/v1/institutions/{_factory.OtherSchoolId}", JsonOptions);
+        Assert.NotNull(otherInstitutionDetail);
+        Assert.Equal(_factory.OtherSchoolId, otherInstitutionDetail.Id);
 
         var departments = await _client.GetFromJsonAsync<DepartmentAdminResponse[]>(
             $"/api/v1/departments?institutionId={_factory.SchoolId}", JsonOptions);
@@ -631,6 +643,17 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(departmentId, detail!.Id);
 
         Login(UserRole.SchoolAdmin);
+        var schoolInstitutions = await _client.GetFromJsonAsync<InstitutionAdminResponse[]>(
+            "/api/v1/institutions", JsonOptions);
+        var schoolInstitution = Assert.Single(schoolInstitutions!);
+        Assert.Equal(_factory.SchoolId, schoolInstitution.Id);
+        Assert.Equal("School A", schoolInstitution.Name);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync($"/api/v1/institutions?institutionId={_factory.OtherSchoolId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await _client.GetAsync($"/api/v1/institutions/{_factory.OtherSchoolId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK,
+            (await _client.GetAsync($"/api/v1/institutions/{_factory.SchoolId}")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync($"/api/v1/departments?institutionId={_factory.SchoolId}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await _client.GetAsync($"/api/v1/departments?institutionId={_factory.OtherSchoolId}")).StatusCode);
@@ -644,8 +667,14 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(1, schoolAdminStats.ActiveInstitutions);
         Assert.Equal(0, schoolAdminStats.PendingVerificationInstitutions);
         Assert.Equal(1, schoolAdminStats.StudentsReached);
+        var spoofedInstitutionStats = await _client.GetFromJsonAsync<InstitutionStatsResponse>(
+            $"/api/v1/institution/stats?institutionId={_factory.OtherSchoolId}", JsonOptions);
+        Assert.NotNull(spoofedInstitutionStats);
+        Assert.Equal(1, spoofedInstitutionStats.TotalInstitutions);
+        Assert.Equal(1, spoofedInstitutionStats.StudentsReached);
 
         Login(UserRole.Student);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/institutions")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/institution/stats")).StatusCode);
     }
 
@@ -780,7 +809,7 @@ public sealed class AccessControlTests : IDisposable
     public async Task ContentMutationsAreAuditedAndVisibleToSuperAdmin()
     {
         Login(UserRole.SchoolAdmin);
-        var created = await _client.PostAsJsonAsync("/api/v1/content", Content(_factory.SchoolId));
+        var created = await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.SchoolId));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var content = await created.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
         Assert.NotNull(content);
@@ -813,10 +842,10 @@ public sealed class AccessControlTests : IDisposable
             startsAt, startsAt.AddHours(2), "Main auditorium", "https://example.test/register",
             null, null, [new AudienceRequest(_factory.SchoolId, null, null, null, null, TargetAudience.Students)], "Academic");
 
-        var invalidEvent = await _client.PostAsJsonAsync("/api/v1/content", request with { EventStartsAt = null });
+        var invalidEvent = await _client.PostAsJsonAsync("/api/v1/content/json", request with { EventStartsAt = null });
         Assert.Equal(HttpStatusCode.BadRequest, invalidEvent.StatusCode);
 
-        var create = await _client.PostAsJsonAsync("/api/v1/content", request);
+        var create = await _client.PostAsJsonAsync("/api/v1/content/json", request);
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var created = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
         Assert.NotNull(created);
@@ -885,12 +914,12 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminCanSaveListAndPublishCalendarDrafts()
+    public async Task SchoolAdminCanSaveAndSubmitCalendarDraftForLeadApproval()
     {
         Login(UserRole.SchoolAdmin);
         var draftRequest = new CreateAcademicCalendarRequest(_factory.SchoolId, "2026/2027 Draft", "2026/2027",
             "https://example.com/calendar.png", DateTimeOffset.UtcNow, false, "Draft");
-        var create = await _client.PostAsJsonAsync("/api/v1/calendar", draftRequest);
+        var create = await _client.PostAsJsonAsync("/api/v1/calendar/json", draftRequest);
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var draft = await create.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
         Assert.NotNull(draft);
@@ -904,6 +933,11 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/api/v1/calendar/current")).StatusCode);
 
         var publishResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/publish", null);
+        Assert.Equal(HttpStatusCode.Forbidden, publishResponse.StatusCode);
+        var submitResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/submit", null);
+        Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+        Login(UserRole.LeadSchoolAdmin);
+        publishResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/publish", null);
         Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
         var published = await publishResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
         Assert.Equal("Published", published!.Status);
@@ -930,7 +964,7 @@ public sealed class AccessControlTests : IDisposable
         var file = new ByteArrayContent(png);
         file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
         form.Add(file, "file", "calendar.png");
-        var response = await _client.PostAsync("/api/v1/calendar/upload", form);
+        var response = await _client.PostAsync("/api/v1/calendar", form);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using (var scope = _factory.Services.CreateScope())
         {
@@ -940,20 +974,22 @@ public sealed class AccessControlTests : IDisposable
             using var compressed = new ImageMagick.MagickImage(stored.Value);
             Assert.Equal(ImageMagick.MagickFormat.WebP, compressed.Format);
         }
+        var created = await response.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
+        Assert.NotNull(created);
+        Assert.Equal("Draft", created.Status);
+        Assert.Contains("signed=test", created.ImageUrl);
         Login(UserRole.Student);
-        var calendar = await _client.GetFromJsonAsync<AcademicCalendarResponse>("/api/v1/calendar/current");
-        Assert.Equal("Academic calendar", calendar!.Title);
-        Assert.Contains("signed=test", calendar.ImageUrl);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/api/v1/calendar/current")).StatusCode);
     }
 
     [Fact]
     public async Task SchoolAdminCanUploadImageToOwnCalendarButNotAnotherInstitution()
     {
         Login(UserRole.SuperAdmin);
-        var ownCalendarResponse = await _client.PostAsJsonAsync("/api/v1/calendar",
+        var ownCalendarResponse = await _client.PostAsJsonAsync("/api/v1/calendar/json",
             new CreateAcademicCalendarRequest(_factory.SchoolId, "School A calendar", "2026/2027",
                 "https://example.com/old.png", DateTimeOffset.UtcNow, false, "Draft"));
-        var foreignCalendarResponse = await _client.PostAsJsonAsync("/api/v1/calendar",
+        var foreignCalendarResponse = await _client.PostAsJsonAsync("/api/v1/calendar/json",
             new CreateAcademicCalendarRequest(_factory.OtherSchoolId, "School B calendar", "2026/2027",
                 "https://example.com/old.png", DateTimeOffset.UtcNow, false, "Draft"));
         Assert.Equal(HttpStatusCode.Created, ownCalendarResponse.StatusCode);
@@ -968,18 +1004,26 @@ public sealed class AccessControlTests : IDisposable
         var ownFile = new ByteArrayContent(png);
         ownFile.Headers.ContentType = new MediaTypeHeaderValue("image/png");
         ownForm.Add(ownFile, "file", "calendar.png");
-        var upload = await _client.PostAsync($"/api/v1/media/calendar/{ownCalendar!.Id}", ownForm);
+        var upload = await _client.PostAsync($"/api/v1/calendar/{ownCalendar!.Id}/media", ownForm);
         Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
         var updated = await upload.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
         Assert.Contains("signed=test", updated!.ImageUrl);
         Assert.Equal("Draft", updated.Status);
+
+        var mediaResponse = await _client.GetFromJsonAsync<CalendarMediaResponse>(
+            $"/api/v1/calendar/{ownCalendar.Id}/media", JsonOptions);
+        Assert.NotNull(mediaResponse);
+        Assert.Equal(ownCalendar.Id, mediaResponse.CalendarId);
+        Assert.Contains("signed=test", mediaResponse.DownloadUrl);
 
         using var foreignForm = new MultipartFormDataContent();
         var foreignFile = new ByteArrayContent(png);
         foreignFile.Headers.ContentType = new MediaTypeHeaderValue("image/png");
         foreignForm.Add(foreignFile, "file", "calendar.png");
         Assert.Equal(HttpStatusCode.Forbidden,
-            (await _client.PostAsync($"/api/v1/media/calendar/{foreignCalendar!.Id}", foreignForm)).StatusCode);
+            (await _client.PostAsync($"/api/v1/calendar/{foreignCalendar!.Id}/media", foreignForm)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync($"/api/v1/calendar/{foreignCalendar.Id}/media")).StatusCode);
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
@@ -1038,7 +1082,7 @@ public sealed class AccessControlTests : IDisposable
         Login(UserRole.SuperAdmin);
         var request = Content(_factory.SchoolId);
 
-        var response = await _client.PostAsJsonAsync("/api/v1/content", request);
+        var response = await _client.PostAsJsonAsync("/api/v1/content/json", request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var content = await response.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
 
