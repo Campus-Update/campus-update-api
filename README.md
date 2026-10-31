@@ -8,7 +8,7 @@ Central REST API for the Campus Update mobile, school-admin, and super-admin app
 - PostgreSQL 17 with Entity Framework Core
 - JWT access and rotating refresh tokens
 - OpenAPI at `/openapi/v1.json`
-- Swagger UI at `/swagger/index.html` 
+- Swagger UI at `/swagger/index.html`
 - Firebase Cloud Messaging integration is planned for push delivery only
 
 ## Core schema
@@ -30,7 +30,7 @@ Copy-Item .env.example .env
 docker compose up -d postgres
 dotnet tool restore
 dotnet tool run dotnet-ef database update --project src/CampusUpdate.Infrastructure --startup-project src/CampusUpdate.Api
-dotnet run --project src/CampusUpdate.Api
+dotnet run --project src/CampusUpdate.A
 ```
 
 The API starts using the URL shown by `dotnet run`. Check `/health` and use the interactive Swagger UI at `/swagger` or the OpenAPI document at `/openapi/v1.json` in Development and Staging.
@@ -58,13 +58,13 @@ The development database password must match `ConnectionStrings__Postgres` in yo
 
 All HTTP routes use `/api/v1`. JWT role values are `Student`, `Staff`, `SchoolAdmin`, `SuperAdmin`. Existing authentication and content contracts remain in place. Development Swagger is available at `/swagger`.
 
-| Method and route | Access | Request / result |
-| --- | --- | --- |
-| POST `/admin/schools` | SuperAdmin | `{name, slug, state, isActive}`; 201 with institution ID and fields; duplicate slug 409 |
-| POST `/admin/users` | SuperAdmin | `{email, password, firstName, lastName, institutionId}`; creates a SchoolAdmin for an active institution, 201 without credentials; duplicate email 409 |
-| PATCH `/admin/users/{id}` | SuperAdmin | `{role, isActive}`; roles Student/Staff/SchoolAdmin only; invalidates refresh token; 200 without credentials |
-| PUT `/auth/academic-settings` | Authenticated active user | Existing fields plus optional `allCampusFeed` (default false) |
-| GET `/auth/profile` | Authenticated active user | Existing profile fields plus `allCampusFeed` |
+| Method and route              | Access                    | Request / result                                                                                                                                       |
+| ----------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| POST `/admin/schools`         | SuperAdmin                | `{name, slug, state, isActive}`; 201 with institution ID and fields; duplicate slug 409                                                                |
+| POST `/admin/users`           | SuperAdmin                | `{email, password, firstName, lastName, institutionId}`; creates a SchoolAdmin for an active institution, 201 without credentials; duplicate email 409 |
+| PATCH `/admin/users/{id}`     | SuperAdmin                | `{role, isActive}`; roles Student/Staff/SchoolAdmin only; invalidates refresh token; 200 without credentials                                           |
+| PUT `/auth/academic-settings` | Authenticated active user | Existing fields plus optional `allCampusFeed` (default false)                                                                                          |
+| GET `/auth/profile`           | Authenticated active user | Existing profile fields plus `allCampusFeed`                                                                                                           |
 
 Administrator passwords require at least 12 characters. School name/state are required and bounded; slugs contain lowercase letters, numbers and single hyphen separators. Initial super-admin creation is an operator command documented in `environments.md`, not an HTTP route. This API cannot create or modify other super administrators.
 
@@ -77,6 +77,5 @@ Content creation still produces drafts. Publishing, media uploads, ad moderation
 Apply the `FoundationAccessControl` migration before running this version. It adds nullable institution state, an all-campus preference defaulting to false for existing users, and the audit-log table. Existing institutions and personalized feeds retain their previous behavior.
 
 HTTP regression tests exercise real JWT authentication with an isolated in-memory database. CI additionally applies migrations to PostgreSQL 17, runs initial administrator bootstrap and checks its repeat refusal, verifies repeatable development seeding, and confirms that staging rejects demo seeding. These checks do not provision or validate deployed cloud environments.
-
 
 See [Stage 3 client integration](docs/stage-3-integration.md) for calendar upload, audience selection, notification acknowledgements and analytics.

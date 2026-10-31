@@ -31,4 +31,13 @@ public sealed class B2MediaStorage(IAmazonS3 client, IOptions<B2Options> options
         };
         return Task.FromResult(client.GetPreSignedURL(request));
     }
+
+    public async Task DeleteAsync(string objectKey, CancellationToken cancellationToken)
+    {
+        await client.DeleteObjectAsync(new DeleteObjectRequest
+        {
+            BucketName = options.Value.BucketName,
+            Key = objectKey
+        }, cancellationToken);
+    }
 }

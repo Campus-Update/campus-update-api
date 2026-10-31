@@ -73,4 +73,5 @@ public sealed record UserProfileResponse(
     bool EventsEnabled,
     bool AdvertisementsEnabled,
     bool PushNotificationsEnabled,
-    bool AllCampusFeed);
+    bool AllCampusFeed,
+    string? ProfileImageUrl);

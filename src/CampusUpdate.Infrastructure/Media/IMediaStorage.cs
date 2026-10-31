@@ -6,4 +6,5 @@ public interface IMediaStorage
 {
     Task<StoredMedia> UploadAsync(Stream content, string objectKey, string contentType, long sizeBytes, CancellationToken cancellationToken);
     Task<string> CreateDownloadUrlAsync(string objectKey, TimeSpan lifetime, CancellationToken cancellationToken);
+    Task DeleteAsync(string objectKey, CancellationToken cancellationToken);
 }
