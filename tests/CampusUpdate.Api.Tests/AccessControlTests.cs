@@ -464,6 +464,82 @@ public sealed class AccessControlTests : IDisposable
         var profile = await _client.GetFromJsonAsync<UserProfileResponse>("/api/v1/auth/profile", JsonOptions);
         Assert.Equal(registration.Email, profile!.Email);
         Assert.False(profile.AllCampusFeed);
+        Assert.Null(profile.ProfileImageUrl);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Student)]
+    [InlineData(UserRole.Staff)]
+    public async Task StudentOrStaffCanUploadAndRemoveTheirProfilePhoto(UserRole role)
+    {
+        var userId = Login(role);
+        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.CornflowerBlue, 64, 64);
+        var png = image.ToByteArray(ImageMagick.MagickFormat.Png);
+        using var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(png);
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        form.Add(file, "file", "profile.png");
+
+        var upload = await _client.PostAsync("/api/v1/auth/profile/photo", form);
+        Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
+        var profile = await upload.Content.ReadFromJsonAsync<UserProfileResponse>(JsonOptions);
+        Assert.Contains("signed=test", profile!.ProfileImageUrl);
+
+        string objectKey;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            var user = await db.Users.SingleAsync(x => x.Id == userId);
+            objectKey = user.ProfileImageKey!;
+            Assert.StartsWith($"profile-images/{_factory.SchoolId:N}/{userId:N}/", objectKey);
+            var storage = (TestMediaStorage)scope.ServiceProvider.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
+            using var stored = new ImageMagick.MagickImage(storage.Files[objectKey]);
+            Assert.Equal(ImageMagick.MagickFormat.WebP, stored.Format);
+        }
+
+        using var replacementForm = new MultipartFormDataContent();
+        var replacementFile = new ByteArrayContent(png);
+        replacementFile.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        replacementForm.Add(replacementFile, "file", "replacement.png");
+        var replacement = await _client.PostAsync("/api/v1/auth/profile/photo", replacementForm);
+        Assert.Equal(HttpStatusCode.OK, replacement.StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            objectKey = (await db.Users.SingleAsync(x => x.Id == userId)).ProfileImageKey!;
+            Assert.StartsWith($"profile-images/{_factory.SchoolId:N}/{userId:N}/", objectKey);
+            var storage = (TestMediaStorage)scope.ServiceProvider.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
+            Assert.Single(storage.Files);
+            Assert.Contains(objectKey, storage.Files.Keys);
+        }
+
+        var delete = await _client.DeleteAsync("/api/v1/auth/profile/photo");
+        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
+        var updatedProfile = await _client.GetFromJsonAsync<UserProfileResponse>("/api/v1/auth/profile", JsonOptions);
+        Assert.Null(updatedProfile!.ProfileImageUrl);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
+            Assert.Null((await db.Users.SingleAsync(x => x.Id == userId)).ProfileImageKey);
+            var storage = (TestMediaStorage)scope.ServiceProvider.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
+            Assert.DoesNotContain(objectKey, storage.Files.Keys);
+        }
+    }
+
+    [Fact]
+    public async Task ProfilePhotoUploadRejectsNonImageContent()
+    {
+        Login(UserRole.Student);
+        using var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent("not an image"u8.ToArray());
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        form.Add(file, "file", "profile.png");
+
+        var response = await _client.PostAsync("/api/v1/auth/profile/photo", form);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var scope = _factory.Services.CreateScope();
+        var storage = (TestMediaStorage)scope.ServiceProvider.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
+        Assert.Empty(storage.Files);
     }
 
     [Theory]
@@ -490,7 +566,7 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(HttpStatusCode.Created, schoolResponse.StatusCode);
         var school = await schoolResponse.Content.ReadFromJsonAsync<AdminSchoolResponse>();
         var adminResponse = await _client.PostAsJsonAsync("/api/v1/admin/users",
-            new CreateInitialLeadSchoolAdminRequest("new-admin@example.test", "test-password-123", "School", "Admin", school!.Id));
+            new CreateSchoolAdminRequest("new-admin@example.test", "test-password-123", "School", "Admin", school!.Id));
         Assert.Equal(HttpStatusCode.Created, adminResponse.StatusCode);
         var admin = await adminResponse.Content.ReadFromJsonAsync<AdminUserResponse>(JsonOptions);
         Assert.Equal(UserRole.LeadSchoolAdmin, admin!.Role);
@@ -914,7 +990,7 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminCanSaveAndSubmitCalendarDraftForLeadApproval()
+    public async Task SchoolAdminCanSubmitCalendarDraftForLeadApproval()
     {
         Login(UserRole.SchoolAdmin);
         var draftRequest = new CreateAcademicCalendarRequest(_factory.SchoolId, "2026/2027 Draft", "2026/2027",
@@ -934,8 +1010,12 @@ public sealed class AccessControlTests : IDisposable
 
         var publishResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/publish", null);
         Assert.Equal(HttpStatusCode.Forbidden, publishResponse.StatusCode);
+
         var submitResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/submit", null);
         Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+        var submitted = await submitResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
+        Assert.Equal("PendingApproval", submitted!.Status);
+
         Login(UserRole.LeadSchoolAdmin);
         publishResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/publish", null);
         Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
@@ -952,7 +1032,7 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task CalendarUploadCompressesImageAndMakesItCurrent()
+    public async Task CalendarUploadCompressesImageAndRemainsDraftUntilApproved()
     {
         Login(UserRole.SchoolAdmin);
         using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.White, 100, 100);
@@ -966,6 +1046,9 @@ public sealed class AccessControlTests : IDisposable
         form.Add(file, "file", "calendar.png");
         var response = await _client.PostAsync("/api/v1/calendar", form);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var draft = await response.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal("Draft", draft.Status);
         using (var scope = _factory.Services.CreateScope())
         {
             var storage = (TestMediaStorage)scope.ServiceProvider.GetRequiredService<CampusUpdate.Infrastructure.Media.IMediaStorage>();
@@ -974,12 +1057,14 @@ public sealed class AccessControlTests : IDisposable
             using var compressed = new ImageMagick.MagickImage(stored.Value);
             Assert.Equal(ImageMagick.MagickFormat.WebP, compressed.Format);
         }
-        var created = await response.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
-        Assert.NotNull(created);
-        Assert.Equal("Draft", created.Status);
-        Assert.Contains("signed=test", created.ImageUrl);
-        Login(UserRole.Student);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/api/v1/calendar/current")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync($"/api/v1/calendar/{draft.Id}/submit", null)).StatusCode);
+        Login(UserRole.LeadSchoolAdmin);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsync($"/api/v1/calendar/{draft.Id}/publish", null)).StatusCode);
+        Login(UserRole.Student);
+        var calendar = await _client.GetFromJsonAsync<AcademicCalendarResponse>("/api/v1/calendar/current");
+        Assert.Equal("Academic calendar", calendar!.Title);
+        Assert.Contains("signed=test", calendar.ImageUrl);
     }
 
     [Fact]
@@ -992,10 +1077,22 @@ public sealed class AccessControlTests : IDisposable
         var foreignCalendarResponse = await _client.PostAsJsonAsync("/api/v1/calendar/json",
             new CreateAcademicCalendarRequest(_factory.OtherSchoolId, "School B calendar", "2026/2027",
                 "https://example.com/old.png", DateTimeOffset.UtcNow, false, "Draft"));
+        var publishedCalendarResponse = await _client.PostAsJsonAsync("/api/v1/calendar/json",
+            new CreateAcademicCalendarRequest(_factory.SchoolId, "Published calendar", "2026/2027",
+                "https://example.com/published-calendar.webp", DateTimeOffset.UtcNow, false, "Draft"));
         Assert.Equal(HttpStatusCode.Created, ownCalendarResponse.StatusCode);
         Assert.Equal(HttpStatusCode.Created, foreignCalendarResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, publishedCalendarResponse.StatusCode);
         var ownCalendar = await ownCalendarResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
         var foreignCalendar = await foreignCalendarResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
+        var publishedCalendar = await publishedCalendarResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
+
+        Login(UserRole.SchoolAdmin);
+        Assert.Equal(HttpStatusCode.OK,
+            (await _client.PostAsync($"/api/v1/calendar/{publishedCalendar!.Id}/submit", null)).StatusCode);
+        Login(UserRole.LeadSchoolAdmin);
+        Assert.Equal(HttpStatusCode.OK,
+            (await _client.PostAsync($"/api/v1/calendar/{publishedCalendar.Id}/publish", null)).StatusCode);
 
         Login(UserRole.SchoolAdmin);
         using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.CornflowerBlue, 64, 64);
@@ -1024,6 +1121,14 @@ public sealed class AccessControlTests : IDisposable
             (await _client.PostAsync($"/api/v1/calendar/{foreignCalendar!.Id}/media", foreignForm)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,
             (await _client.GetAsync($"/api/v1/calendar/{foreignCalendar.Id}/media")).StatusCode);
+
+        Login(UserRole.Student);
+        var publishedMedia = await _client.GetFromJsonAsync<CalendarMediaResponse>(
+            $"/api/v1/calendar/{publishedCalendar!.Id}/media", JsonOptions);
+        Assert.NotNull(publishedMedia);
+        Assert.Equal("https://example.com/published-calendar.webp", publishedMedia.DownloadUrl);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await _client.GetAsync($"/api/v1/calendar/{ownCalendar.Id}/media")).StatusCode);
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();

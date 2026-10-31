@@ -31,6 +31,7 @@ public sealed class AppUser : Entity
     public required string LastName { get; set; }
     public UserRole Role { get; set; }
     public string? MatriculationOrStaffNumber { get; set; }
+    public string? ProfileImageKey { get; set; }
     public bool IsActive { get; set; } = true;
     public bool EmailVerified { get; set; }
     public string? EmailVerificationCodeHash { get; set; }

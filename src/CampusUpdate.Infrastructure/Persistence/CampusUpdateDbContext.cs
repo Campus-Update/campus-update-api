@@ -142,6 +142,7 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
             entity.Property(x => x.Email).HasMaxLength(320);
             entity.Property(x => x.FirstName).HasMaxLength(100);
             entity.Property(x => x.LastName).HasMaxLength(100);
+            entity.Property(x => x.ProfileImageKey).HasMaxLength(512);
             entity.HasIndex(x => x.Email).IsUnique();
             entity.HasOne(x => x.Institution).WithMany().OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.Faculty).WithMany().OnDelete(DeleteBehavior.Restrict);

@@ -4,6 +4,7 @@ using System.Text;
 using CampusUpdate.Api.Authentication;
 using CampusUpdate.Api.Auth;
 using CampusUpdate.Api.Contracts;
+using CampusUpdate.Api.Media;
 using CampusUpdate.Domain.Users;
 using CampusUpdate.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -11,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using CampusUpdate.Domain.Notifications;
+using CampusUpdate.Infrastructure.Media;
 
 namespace CampusUpdate.Api.Controllers;
 
@@ -22,7 +24,8 @@ public sealed class AuthController(
     ITokenService tokenService,
     Microsoft.Extensions.Options.IOptions<JwtOptions> jwtOptions,
     IEmailSender emailSender,
-    ILogger<AuthController> logger) : ControllerBase
+    ILogger<AuthController> logger,
+    IMediaStorage mediaStorage) : ControllerBase
 {
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
@@ -158,7 +161,7 @@ public sealed class AuthController(
     public async Task<ActionResult<UserProfileResponse>> GetProfile(CancellationToken cancellationToken)
     {
         var user = await GetCurrentUser(cancellationToken);
-        return user is null ? Unauthorized() : Ok(ToProfileResponse(user));
+        return user is null ? Unauthorized() : Ok(await ToProfileResponse(user, cancellationToken));
     }
 
     [Authorize]
@@ -175,7 +178,58 @@ public sealed class AuthController(
         user.LastName = request.LastName.Trim();
         user.MatriculationOrStaffNumber = request.MatriculationOrStaffNumber?.Trim();
         await db.SaveChangesAsync(cancellationToken);
-        return Ok(ToProfileResponse(user));
+        return Ok(await ToProfileResponse(user, cancellationToken));
+    }
+
+    [Authorize]
+    [HttpPost("profile/photo")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(ProfileImageStorage.MaxRequestBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = ProfileImageStorage.MaxRequestBytes)]
+    public async Task<ActionResult<UserProfileResponse>> UploadProfilePhoto(
+        IFormFile? file,
+        CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        if (file is null) return BadRequest(new ProblemDetails { Title = "Select a profile image to upload." });
+
+        var result = await ProfileImageStorage.StoreAsync(file, user, mediaStorage, cancellationToken);
+        if (result.Error is not null)
+            return BadRequest(new ProblemDetails { Title = result.Error });
+
+        var previousKey = user.ProfileImageKey;
+        user.ProfileImageKey = result.Key;
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            if (result.Key is not null)
+                await TryDeleteProfileImageAsync(result.Key, cancellationToken);
+            throw;
+        }
+
+        if (!string.IsNullOrWhiteSpace(previousKey))
+            await TryDeleteProfileImageAsync(previousKey, cancellationToken);
+
+        return Ok(await ToProfileResponse(user, cancellationToken));
+    }
+
+    [Authorize]
+    [HttpDelete("profile/photo")]
+    public async Task<IActionResult> DeleteProfilePhoto(CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(user.ProfileImageKey)) return NoContent();
+
+        var previousKey = user.ProfileImageKey;
+        user.ProfileImageKey = null;
+        await db.SaveChangesAsync(cancellationToken);
+        await TryDeleteProfileImageAsync(previousKey, cancellationToken);
+        return NoContent();
     }
 
     [Authorize]
@@ -280,7 +334,7 @@ public sealed class AuthController(
         user.FeedPreference.PushNotificationsEnabled = request.PushNotificationsEnabled;
         user.FeedPreference.AllCampusFeed = request.AllCampusFeed;
         await db.SaveChangesAsync(cancellationToken);
-        return Ok(ToProfileResponse(user));
+        return Ok(await ToProfileResponse(user, cancellationToken));
     }
 
     [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.LeadSchoolAdmin) + "," +
@@ -329,24 +383,43 @@ public sealed class AuthController(
             .SingleOrDefaultAsync(x => x.Id == userId && x.IsActive, cancellationToken);
     }
 
-    private static UserProfileResponse ToProfileResponse(AppUser user) => new(
-        user.Id,
-        user.Email,
-        user.FirstName,
-        user.LastName,
-        user.Role,
-        user.MatriculationOrStaffNumber,
-        user.InstitutionId,
-        user.FacultyId,
-        user.DepartmentId,
-        user.ProgrammeId,
-        user.AcademicLevelId,
-        user.FeedPreference.NewsEnabled,
-        user.FeedPreference.AnnouncementsEnabled,
-        user.FeedPreference.EventsEnabled,
-        user.FeedPreference.AdvertisementsEnabled,
-        user.FeedPreference.PushNotificationsEnabled,
-        user.FeedPreference.AllCampusFeed);
+    private async Task<UserProfileResponse> ToProfileResponse(AppUser user, CancellationToken cancellationToken)
+    {
+        var imageUrl = string.IsNullOrWhiteSpace(user.ProfileImageKey)
+            ? null
+            : await mediaStorage.CreateDownloadUrlAsync(user.ProfileImageKey, TimeSpan.FromMinutes(15), cancellationToken);
+        return new UserProfileResponse(
+            user.Id,
+            user.Email,
+            user.FirstName,
+            user.LastName,
+            user.Role,
+            user.MatriculationOrStaffNumber,
+            user.InstitutionId,
+            user.FacultyId,
+            user.DepartmentId,
+            user.ProgrammeId,
+            user.AcademicLevelId,
+            user.FeedPreference.NewsEnabled,
+            user.FeedPreference.AnnouncementsEnabled,
+            user.FeedPreference.EventsEnabled,
+            user.FeedPreference.AdvertisementsEnabled,
+            user.FeedPreference.PushNotificationsEnabled,
+            user.FeedPreference.AllCampusFeed,
+            imageUrl);
+    }
+
+    private async Task TryDeleteProfileImageAsync(string objectKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await mediaStorage.DeleteAsync(objectKey, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not delete superseded profile image object {ObjectKey}.", objectKey);
+        }
+    }
 
     private static string HashResetCode(string code) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));

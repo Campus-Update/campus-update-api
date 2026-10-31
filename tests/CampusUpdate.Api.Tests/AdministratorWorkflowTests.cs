@@ -73,6 +73,8 @@ public sealed class AdministratorWorkflowTests : IDisposable
         Assert.Contains("/api/v1/admin/administrators", openApiDocument, StringComparison.Ordinal);
         Assert.Contains("/api/v1/content/pending-approval", openApiDocument, StringComparison.Ordinal);
         Assert.Contains("/api/v1/emergency-alerts", openApiDocument, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/auth/profile/photo", openApiDocument, StringComparison.Ordinal);
+        Assert.Contains("profileImageUrl", openApiDocument, StringComparison.Ordinal);
         Assert.Contains("isEmergencyAlert", openApiDocument, StringComparison.Ordinal);
 
         var response = await _client.GetAsync("/swagger/v1/swagger.json");
@@ -81,6 +83,8 @@ public sealed class AdministratorWorkflowTests : IDisposable
         Assert.Contains("/api/v1/admin/administrators", document, StringComparison.Ordinal);
         Assert.Contains("/api/v1/content/pending-approval", document, StringComparison.Ordinal);
         Assert.Contains("/api/v1/emergency-alerts", document, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/auth/profile/photo", document, StringComparison.Ordinal);
+        Assert.Contains("profileImageUrl", document, StringComparison.Ordinal);
         Assert.Contains("LeadSchoolAdmin", document, StringComparison.Ordinal);
         Assert.Contains("isEmergencyAlert", document, StringComparison.Ordinal);
     }

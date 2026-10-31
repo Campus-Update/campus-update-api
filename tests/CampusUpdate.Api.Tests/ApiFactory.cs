@@ -194,4 +194,9 @@ public sealed class TestMediaStorage : CampusUpdate.Infrastructure.Media.IMediaS
         return new(objectKey, contentType, sizeBytes);
     }
     public Task<string> CreateDownloadUrlAsync(string objectKey, TimeSpan lifetime, CancellationToken ct) => Task.FromResult($"https://media.example.test/{objectKey}?signed=test");
+    public Task DeleteAsync(string objectKey, CancellationToken ct)
+    {
+        Files.Remove(objectKey);
+        return Task.CompletedTask;
+    }
 }

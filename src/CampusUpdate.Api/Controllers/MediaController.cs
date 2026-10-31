@@ -1,8 +1,6 @@
 using System.Security.Claims;
-using CampusUpdate.Api.Media;
 using CampusUpdate.Api.Contracts;
 using CampusUpdate.Domain.Content;
-using CampusUpdate.Domain.Schools;
 using CampusUpdate.Domain.Users;
 using CampusUpdate.Infrastructure.Media;
 using CampusUpdate.Infrastructure.Persistence;
@@ -49,42 +47,6 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
         await db.SaveChangesAsync(cancellationToken);
         var url = await storage.CreateDownloadUrlAsync(key, TimeSpan.FromMinutes(15), cancellationToken);
         return Created($"/api/v1/media/{attachment.Id}", new MediaUploadResponse(attachment.Id, safeName, file.ContentType, file.Length, url));
-    }
-
-    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
-    [HttpPost("calendar/{calendarId:guid}")]
-    [RequestSizeLimit(6 * 1024 * 1024)]
-    public async Task<ActionResult<AcademicCalendarResponse>> UploadCalendarImage(
-        Guid calendarId, IFormFile file, CancellationToken cancellationToken)
-    {
-        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) return Unauthorized();
-        var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == userId && x.IsActive, cancellationToken);
-        if (user is null) return Unauthorized();
-        if (!user.Role.CanManageCalendars()) return Forbid();
-        var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == calendarId, cancellationToken);
-        if (calendar is null) return NotFound();
-        if (user.Role != UserRole.SuperAdmin && calendar.InstitutionId != user.InstitutionId) return Forbid();
-        if (user.Role == UserRole.CalendarAdmin &&
-            calendar.Status is not (AcademicCalendarStatus.Draft or AcademicCalendarStatus.Rejected))
-            return Forbid();
-
-        var storedImage = await CalendarImageStorage.StoreAsync(file, calendar.InstitutionId, storage, cancellationToken);
-        if (storedImage.Error is not null)
-            return BadRequest(new ProblemDetails { Title = storedImage.Error });
-        var key = storedImage.Key ?? throw new InvalidOperationException("Calendar image storage returned no key.");
-        calendar.ImageUrl = key;
-        await db.SaveChangesAsync(cancellationToken);
-
-        var url = await storage.CreateDownloadUrlAsync(key, TimeSpan.FromMinutes(15), cancellationToken);
-        return Ok(new AcademicCalendarResponse(
-            calendar.Id,
-            calendar.InstitutionId,
-            calendar.Title,
-            calendar.AcademicSession,
-            url,
-            calendar.PublishedAt,
-            calendar.Status.ToString(),
-            calendar.IsOfficial));
     }
 
     [Authorize]

@@ -31,8 +31,7 @@ public sealed class InstitutionAdministratorsController(
         }
 
         var users = db.Users.AsNoTracking()
-            .Where(x => x.Role == UserRole.NewsAdmin || x.Role == UserRole.CalendarAdmin ||
-                (caller.Role == UserRole.SuperAdmin && x.Role == UserRole.LeadSchoolAdmin));
+            .Where(x => x.Role == UserRole.NewsAdmin || x.Role == UserRole.CalendarAdmin);
         if (institutionId.HasValue)
             users = users.Where(x => x.InstitutionId == institutionId.Value);
 
@@ -52,8 +51,7 @@ public sealed class InstitutionAdministratorsController(
         if (caller is null) return Unauthorized();
         var user = await db.Users.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == id &&
-                (x.Role == UserRole.NewsAdmin || x.Role == UserRole.CalendarAdmin ||
-                 (caller.Role == UserRole.SuperAdmin && x.Role == UserRole.LeadSchoolAdmin)), cancellationToken);
+                (x.Role == UserRole.NewsAdmin || x.Role == UserRole.CalendarAdmin), cancellationToken);
         if (user is null) return NotFound();
         if (caller.Role == UserRole.LeadSchoolAdmin && user.InstitutionId != caller.InstitutionId)
             return NotFound();
@@ -67,9 +65,8 @@ public sealed class InstitutionAdministratorsController(
     {
         var caller = await GetCurrentUser(cancellationToken);
         if (caller is null) return Unauthorized();
-        if (request.Role is not (UserRole.NewsAdmin or UserRole.CalendarAdmin) &&
-            !(caller.Role == UserRole.SuperAdmin && request.Role == UserRole.LeadSchoolAdmin))
-            return BadRequest(new ProblemDetails { Title = "LeadSchoolAdmin can only be assigned by a SuperAdmin; other institution administrators can be assigned by a LeadSchoolAdmin." });
+        if (request.Role is not (UserRole.NewsAdmin or UserRole.CalendarAdmin))
+            return BadRequest(new ProblemDetails { Title = "Only NewsAdmin and CalendarAdmin roles can be assigned here." });
         if (caller.Role == UserRole.LeadSchoolAdmin && request.InstitutionId != caller.InstitutionId)
             return Forbid();
         if (!await db.Institutions.AnyAsync(
@@ -108,14 +105,12 @@ public sealed class InstitutionAdministratorsController(
     {
         var caller = await GetCurrentUser(cancellationToken);
         if (caller is null) return Unauthorized();
-        if (request.Role is not (UserRole.NewsAdmin or UserRole.CalendarAdmin) &&
-            !(caller.Role == UserRole.SuperAdmin && request.Role == UserRole.LeadSchoolAdmin))
-            return BadRequest(new ProblemDetails { Title = "LeadSchoolAdmin can only be assigned by a SuperAdmin; other institution administrators can be assigned by a LeadSchoolAdmin." });
+        if (request.Role is not (UserRole.NewsAdmin or UserRole.CalendarAdmin))
+            return BadRequest(new ProblemDetails { Title = "Only NewsAdmin and CalendarAdmin roles can be assigned here." });
 
         var user = await db.Users.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (user is null) return NotFound();
-        if (user.Role is not (UserRole.NewsAdmin or UserRole.CalendarAdmin) &&
-            !(caller.Role == UserRole.SuperAdmin && user.Role == UserRole.LeadSchoolAdmin))
+        if (user.Role is not (UserRole.NewsAdmin or UserRole.CalendarAdmin))
             return Forbid();
         if (caller.Role == UserRole.LeadSchoolAdmin && user.InstitutionId != caller.InstitutionId)
             return Forbid();

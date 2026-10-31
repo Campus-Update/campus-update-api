@@ -804,6 +804,10 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("PasswordResetRequestedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ProfileImageKey")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
                     b.Property<Guid?>("ProgrammeId")
                         .HasColumnType("uuid");
 
