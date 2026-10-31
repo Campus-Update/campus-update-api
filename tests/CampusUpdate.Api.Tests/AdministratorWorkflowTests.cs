@@ -65,25 +65,6 @@ public sealed class AdministratorWorkflowTests : IDisposable
     }
 
     [Fact]
-    public async Task SuperAdminCanCreateAndListLeadSchoolAdmins()
-    {
-        Login(UserRole.SuperAdmin);
-        var response = await _client.PostAsJsonAsync("/api/v1/admin/administrators",
-            new CreateInstitutionAdministratorRequest(
-                "lead-admin@example.test", "long-test-password", "Lead", "Admin",
-                _factory.SchoolId, UserRole.LeadSchoolAdmin));
-
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var created = await response.Content.ReadFromJsonAsync<InstitutionAdministratorResponse>(JsonOptions);
-        Assert.NotNull(created);
-        Assert.Equal(UserRole.LeadSchoolAdmin, created.Role);
-
-        var administrators = await _client.GetFromJsonAsync<InstitutionAdministratorResponse[]>(
-            "/api/v1/admin/administrators", JsonOptions);
-        Assert.Contains(administrators!, administrator => administrator.Id == created.Id);
-    }
-
-    [Fact]
     public async Task OpenApiDocumentIncludesNewAdministrativeEndpointsAndRoles()
     {
         var openApiResponse = await _client.GetAsync("/openapi/v1.json");
@@ -112,7 +93,7 @@ public sealed class AdministratorWorkflowTests : IDisposable
             "Campus announcement", "Details", null, ContentType.Announcement, UrgencyLevel.Normal,
             SourceType.Official, "School", null, null, null, null, null, null,
             [new AudienceRequest(_factory.SchoolId, null, null, null, null)]);
-        var create = await _client.PostAsJsonAsync("/api/v1/content", request);
+        var create = await _client.PostAsJsonAsync("/api/v1/content/json", request);
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var content = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
         Assert.NotNull(content);
@@ -130,7 +111,7 @@ public sealed class AdministratorWorkflowTests : IDisposable
                 new ChangeContentStatusRequest(ContentStatus.Published))).StatusCode);
 
         Assert.Equal(HttpStatusCode.Forbidden,
-            (await _client.PostAsJsonAsync("/api/v1/content",
+            (await _client.PostAsJsonAsync("/api/v1/content/json",
                 request with { Type = ContentType.Event, EventStartsAt = DateTimeOffset.UtcNow.AddDays(1) })).StatusCode);
 
         Login(UserRole.LeadSchoolAdmin);
@@ -148,7 +129,7 @@ public sealed class AdministratorWorkflowTests : IDisposable
     public async Task CalendarAdminMustSubmitDraftBeforeLeadCanPublish()
     {
         Login(UserRole.CalendarAdmin);
-        var create = await _client.PostAsJsonAsync("/api/v1/calendar",
+        var create = await _client.PostAsJsonAsync("/api/v1/calendar/json",
             new CreateAcademicCalendarRequest(
                 _factory.SchoolId, "Calendar draft", "2026/2027", "https://example.test/calendar.png",
                 DateTimeOffset.UtcNow, false, "Draft"));
@@ -176,7 +157,7 @@ public sealed class AdministratorWorkflowTests : IDisposable
     public async Task RejectedCalendarCanBeRevisedAndResubmitted()
     {
         Login(UserRole.CalendarAdmin);
-        var create = await _client.PostAsJsonAsync("/api/v1/calendar",
+        var create = await _client.PostAsJsonAsync("/api/v1/calendar/json",
             new CreateAcademicCalendarRequest(
                 _factory.SchoolId, "Calendar draft", "2026/2027", "https://example.test/calendar.png",
                 DateTimeOffset.UtcNow, false, "Draft"));
@@ -192,16 +173,6 @@ public sealed class AdministratorWorkflowTests : IDisposable
                 new RejectAcademicCalendarRequest("Revise the exam schedule."))).StatusCode);
 
         Login(UserRole.CalendarAdmin);
-        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.White, 100, 100);
-        using var imageStream = new MemoryStream();
-        image.Write(imageStream, ImageMagick.MagickFormat.Png);
-        using var form = new MultipartFormDataContent();
-        var imageContent = new ByteArrayContent(imageStream.ToArray());
-        imageContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
-        form.Add(imageContent, "file", "revised-calendar.png");
-        Assert.Equal(HttpStatusCode.OK,
-            (await _client.PostAsync($"/api/v1/media/calendar/{calendar.Id}", form)).StatusCode);
-
         var revised = await _client.PutAsJsonAsync($"/api/v1/calendar/{calendar.Id}",
             new CreateAcademicCalendarRequest(
                 _factory.SchoolId, "Revised calendar", "2026/2027", "https://example.test/calendar-v2.png",

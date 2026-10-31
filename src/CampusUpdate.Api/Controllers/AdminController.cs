@@ -358,26 +358,34 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
     }
 
     [HttpPost("users")]
-    public async Task<ActionResult<AdminUserResponse>> CreateSchoolAdmin(CreateSchoolAdminRequest request, CancellationToken cancellationToken)
+    [HttpPost("lead-administrators")]
+    public async Task<ActionResult<AdminUserResponse>> CreateInitialLeadSchoolAdmin(
+        CreateInitialLeadSchoolAdminRequest request,
+        CancellationToken cancellationToken)
     {
         var email = request.Email.Trim().ToLowerInvariant();
         if (await db.Users.AnyAsync(x => x.Email == email, cancellationToken))
             return Conflict(new ProblemDetails { Title = "An account with this email already exists." });
         if (!await db.Institutions.AnyAsync(x => x.Id == request.InstitutionId && x.IsActive, cancellationToken))
             return BadRequest(new ProblemDetails { Title = "An active institution is required." });
+        if (await db.Users.AnyAsync(
+                x => x.InstitutionId == request.InstitutionId && x.Role == UserRole.LeadSchoolAdmin,
+                cancellationToken))
+            return Conflict(new ProblemDetails { Title = "This institution already has a LeadSchoolAdmin." });
+
         var user = new AppUser
         {
             Email = email,
             PasswordHash = string.Empty,
             FirstName = request.FirstName.Trim(),
             LastName = request.LastName.Trim(),
-            Role = UserRole.SchoolAdmin,
+            Role = UserRole.LeadSchoolAdmin,
             InstitutionId = request.InstitutionId,
             FeedPreference = new FeedPreference()
         };
         user.PasswordHash = hasher.HashPassword(user, request.Password);
         db.Users.Add(user);
-        Audit("SchoolAdminCreated", user.Id, user.InstitutionId, new { user.Role, user.IsActive });
+        Audit("LeadSchoolAdminCreated", user.Id, user.InstitutionId, new { user.Role, user.IsActive });
         await db.SaveChangesAsync(cancellationToken);
         return StatusCode(StatusCodes.Status201Created, ToResponse(user));
     }
@@ -385,14 +393,15 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
     [HttpPatch("users/{id:guid}")]
     public async Task<ActionResult<AdminUserResponse>> UpdateUser(Guid id, UpdateAdminUserRequest request, CancellationToken cancellationToken)
     {
-        if (request.Role is not (UserRole.Student or UserRole.Staff or UserRole.SchoolAdmin or
-            UserRole.LeadSchoolAdmin or UserRole.NewsAdmin or UserRole.CalendarAdmin))
-            return BadRequest(new ProblemDetails { Title = "The requested role cannot be assigned here." });
+        if (request.Role is not (UserRole.Student or UserRole.Staff or UserRole.SchoolAdmin))
+            return BadRequest(new ProblemDetails { Title = "Only Student, Staff, and SchoolAdmin roles can be assigned here." });
         var user = await db.Users.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (user is null)
             return NotFound();
         if (user.Role == UserRole.SuperAdmin)
             return Forbid();
+        if (request.Role == UserRole.SchoolAdmin && user.Role != UserRole.SchoolAdmin)
+            return BadRequest(new ProblemDetails { Title = "Only the initial LeadSchoolAdmin can be provisioned for an institution." });
         var previousRole = user.Role;
         var previousActive = user.IsActive;
         user.Role = request.Role;
@@ -417,7 +426,7 @@ public sealed class AdminController(CampusUpdateDbContext db, IPasswordHasher<Ap
     private static string GetTargetType(string action) => action switch
     {
         "SchoolCreated" => "Institution",
-        "SchoolAdminCreated" or "InstitutionAdministratorCreated" or "InstitutionAdministratorUpdated" or "UserAccessUpdated" => "User",
+        "SchoolAdminCreated" or "LeadSchoolAdminCreated" or "InstitutionAdministratorCreated" or "InstitutionAdministratorUpdated" or "UserAccessUpdated" => "User",
         "CalendarSubmittedForApproval" or "CalendarPublished" or "CalendarRejected" => "AcademicCalendar",
         "ContentCreated" or "ContentUpdated" or "ContentStatusChanged" or "ContentArchived" or "EmergencyAlertPublished" => "Content",
         _ => "Unknown"
