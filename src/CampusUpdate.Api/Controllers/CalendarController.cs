@@ -351,7 +351,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         {
             if (calendar.InstitutionId != user.InstitutionId)
                 return user.Role.IsInstitutionAdministrator() ? Forbid() : NotFound();
-                if (!user.Role.CanManageCalendars() &&
+            if (!user.Role.CanManageCalendars() &&
                 (calendar.Status != AcademicCalendarStatus.Published || !calendar.IsOfficial))
                 return NotFound();
         }
