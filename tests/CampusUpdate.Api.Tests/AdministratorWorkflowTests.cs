@@ -73,6 +73,9 @@ public sealed class AdministratorWorkflowTests : IDisposable
         Assert.Contains("/api/v1/admin/administrators", openApiDocument, StringComparison.Ordinal);
         Assert.Contains("/api/v1/content/pending-approval", openApiDocument, StringComparison.Ordinal);
         Assert.Contains("/api/v1/emergency-alerts", openApiDocument, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/calendar/{id}/unpublish", openApiDocument, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/institution/stats/registrations-by-department", openApiDocument, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/institution/stats/weekly-active-students", openApiDocument, StringComparison.Ordinal);
         Assert.Contains("/api/v1/auth/profile/photo", openApiDocument, StringComparison.Ordinal);
         Assert.Contains("profileImageUrl", openApiDocument, StringComparison.Ordinal);
         Assert.Contains("isEmergencyAlert", openApiDocument, StringComparison.Ordinal);
@@ -83,6 +86,9 @@ public sealed class AdministratorWorkflowTests : IDisposable
         Assert.Contains("/api/v1/admin/administrators", document, StringComparison.Ordinal);
         Assert.Contains("/api/v1/content/pending-approval", document, StringComparison.Ordinal);
         Assert.Contains("/api/v1/emergency-alerts", document, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/calendar/{id}/unpublish", document, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/institution/stats/registrations-by-department", document, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/institution/stats/weekly-active-students", document, StringComparison.Ordinal);
         Assert.Contains("/api/v1/auth/profile/photo", document, StringComparison.Ordinal);
         Assert.Contains("profileImageUrl", document, StringComparison.Ordinal);
         Assert.Contains("LeadSchoolAdmin", document, StringComparison.Ordinal);
@@ -155,6 +161,20 @@ public sealed class AdministratorWorkflowTests : IDisposable
         var published = await publish.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
         Assert.Equal("Published", published!.Status);
         Assert.True(published.IsOfficial);
+
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await _client.DeleteAsync($"/api/v1/calendar/{calendar.Id}")).StatusCode);
+        Login(UserRole.CalendarAdmin);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.PostAsync($"/api/v1/calendar/{calendar.Id}/unpublish", null)).StatusCode);
+        Login(UserRole.LeadSchoolAdmin);
+        var unpublish = await _client.PostAsync($"/api/v1/calendar/{calendar.Id}/unpublish", null);
+        Assert.Equal(HttpStatusCode.OK, unpublish.StatusCode);
+        var unpublished = await unpublish.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
+        Assert.Equal("Draft", unpublished!.Status);
+        Assert.False(unpublished.IsOfficial);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await _client.DeleteAsync($"/api/v1/calendar/{calendar.Id}")).StatusCode);
     }
 
     [Fact]

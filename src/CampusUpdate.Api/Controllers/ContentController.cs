@@ -49,9 +49,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                 return BadRequest(new ProblemDetails { Title = "Academic profile filters are only available on the personalized feed." });
 
             var managedQuery = db.ContentItems.AsNoTracking().AsQueryable();
-            if (user.Role == UserRole.SchoolAdmin)
-                managedQuery = managedQuery.Where(x => x.Audiences.Any(a => a.InstitutionId == user.InstitutionId));
-            else if (user.Role != UserRole.SuperAdmin)
+            if (user.Role != UserRole.SuperAdmin)
                 managedQuery = managedQuery.Where(x => x.Audiences.Any(a => a.InstitutionId == user.InstitutionId));
             if (user.Role == UserRole.NewsAdmin)
                 managedQuery = managedQuery.Where(x => x.Type == ContentType.News || x.Type == ContentType.Announcement);
@@ -172,7 +170,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         return Ok(await AddSignedImageUrlsAsync(items, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ContentResponse>> Update(Guid id, UpdateContentRequest request, CancellationToken cancellationToken)
     {
@@ -204,7 +202,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         return Ok(await ToResponseAsync(item, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPatch("{id:guid}/status")]
     public async Task<ActionResult<ContentResponse>> ChangeStatus(Guid id, ChangeContentStatusRequest request, CancellationToken cancellationToken)
     {
@@ -233,7 +231,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         return Ok(await ToResponseAsync(item, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
@@ -249,7 +247,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         await db.SaveChangesAsync(cancellationToken); return NoContent();
     }
 
-    [Authorize(Roles = "SchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost("json")]
     public async Task<ActionResult<ContentResponse>> Create(CreateContentRequest request, CancellationToken cancellationToken)
     {
@@ -315,7 +313,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
     }
 
     /// <summary>Creates a content item and uploads its cover image in one multipart request.</summary>
-    [Authorize(Roles = "SchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(6 * 1024 * 1024)]
@@ -403,7 +401,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (user is null)
             return Unauthorized();
         var isInstitutionAdministrator = user.Role.IsInstitutionAdministrator();
-        var managesAllContent = user.Role is UserRole.SchoolAdmin or UserRole.LeadSchoolAdmin or UserRole.SuperAdmin;
+        var managesAllContent = user.Role is UserRole.LeadSchoolAdmin or UserRole.SuperAdmin;
         var manageableContentTypes = user.Role switch
         {
             UserRole.NewsAdmin => new[] { ContentType.News, ContentType.Announcement },

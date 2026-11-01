@@ -18,3 +18,7 @@ coverage/
 .vercel
 .env*
 .secrets/
+
+.vercel
+.env*
+create_superadmin.sh

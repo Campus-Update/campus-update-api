@@ -50,7 +50,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Ok(calendar);
     }
 
-    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpGet("manage")]
     public async Task<ActionResult<IReadOnlyList<AcademicCalendarResponse>>> ListForManagement(
         [FromQuery] Guid? institutionId,
@@ -79,7 +79,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Ok(response);
     }
 
-    [Authorize(Roles = "SchoolAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost("json")]
     public async Task<ActionResult<AcademicCalendarResponse>> Create(
         CreateAcademicCalendarRequest request,
@@ -123,7 +123,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Created("/api/v1/calendar/latest", response);
     }
 
-    [Authorize(Roles = "SchoolAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<AcademicCalendarResponse>> Replace(Guid id, CreateAcademicCalendarRequest request, CancellationToken cancellationToken)
     {
@@ -218,7 +218,40 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Ok(await ToSignedResponse(calendar, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,SuperAdmin")]
+    [HttpPost("{id:guid}/unpublish")]
+    public async Task<ActionResult<AcademicCalendarResponse>> Unpublish(Guid id, CancellationToken cancellationToken)
+    {
+        var user = await GetCurrentUser(cancellationToken);
+        if (user is null) return Unauthorized();
+        var calendar = await db.AcademicCalendars.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (calendar is null) return NotFound();
+        if (user.Role != UserRole.SuperAdmin && calendar.InstitutionId != user.InstitutionId) return Forbid();
+        if (calendar.Status != AcademicCalendarStatus.Published)
+            return Conflict(new ProblemDetails { Title = "Only published calendars can be unpublished." });
+
+        calendar.Status = AcademicCalendarStatus.Draft;
+        calendar.IsOfficial = false;
+        db.AuditLogs.Add(new AuditLog
+        {
+            ActorId = user.Id,
+            Action = "CalendarUnpublished",
+            TargetId = calendar.Id,
+            InstitutionId = calendar.InstitutionId,
+            Details = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                targetType = "AcademicCalendar",
+                calendar.Title,
+                previousStatus = AcademicCalendarStatus.Published,
+                currentStatus = AcademicCalendarStatus.Draft,
+                requiresResubmissionForPublication = true
+            })
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(await ToSignedResponse(calendar, cancellationToken));
+    }
+
+    [Authorize(Roles = "LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost("{id:guid}/submit")]
     public async Task<ActionResult<AcademicCalendarResponse>> SubmitForApproval(
         Guid id,
@@ -254,7 +287,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Ok(await ToSignedResponse(calendar, cancellationToken));
     }
 
-    [Authorize(Roles = "SchoolAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteDraft(Guid id, CancellationToken cancellationToken)
     {
@@ -271,7 +304,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return NoContent();
     }
 
-    [Authorize(Roles = "SchoolAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(6 * 1024 * 1024)]
@@ -312,7 +345,7 @@ public sealed class CalendarController(CampusUpdateDbContext db, IMediaStorage s
         return Created("/api/v1/calendar/manage", ToResponse(calendar, url));
     }
 
-    [Authorize(Roles = "SchoolAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost("{id:guid}/media")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(6 * 1024 * 1024)]

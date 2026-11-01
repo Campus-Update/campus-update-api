@@ -5,13 +5,14 @@ namespace CampusUpdate.Domain.Users;
 
 public enum UserRole
 {
-    Student,
-    Staff,
-    SchoolAdmin,
-    SuperAdmin,
-    LeadSchoolAdmin,
-    NewsAdmin,
-    CalendarAdmin
+    Student = 0,
+    Staff = 1,
+    // 2 was the retired SchoolAdmin role. Keep the numeric gap to preserve
+    // stable values while the migration upgrades existing account rows.
+    SuperAdmin = 3,
+    LeadSchoolAdmin = 4,
+    NewsAdmin = 5,
+    CalendarAdmin = 6
 }
 
 public enum NotificationSummaryCadence

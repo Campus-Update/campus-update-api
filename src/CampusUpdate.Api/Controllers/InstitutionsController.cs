@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CampusUpdate.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+[Authorize(Roles = "LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
 [Route("api/v1/institutions")]
 public sealed class InstitutionsController(CampusUpdateDbContext db) : ControllerBase
 {

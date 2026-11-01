@@ -82,9 +82,9 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/admin/schools",
             new CreateSchoolRequest("School", "INVALID SLUG", "Osun"))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/admin/users",
-            new CreateSchoolAdminRequest("admin@example.test", "short", "Test", "Admin", _factory.SchoolId))).StatusCode);
+            new CreateInitialLeadSchoolAdminRequest("admin@example.test", "short", "Test", "Admin", _factory.SchoolId))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await _client.PostAsJsonAsync("/api/v1/admin/users",
-            new CreateSchoolAdminRequest("admin@example.test", "test-password-123", "Test", "Admin", Guid.NewGuid()))).StatusCode);
+            new CreateInitialLeadSchoolAdminRequest("admin@example.test", "test-password-123", "Test", "Admin", Guid.NewGuid()))).StatusCode);
         using var scope = _factory.Services.CreateScope();
         Assert.Empty(await scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>().AuditLogs.ToListAsync());
     }
@@ -288,7 +288,7 @@ public sealed class AccessControlTests : IDisposable
     [Theory]
     [InlineData(UserRole.Student)]
     [InlineData(UserRole.Staff)]
-    [InlineData(UserRole.SchoolAdmin)]
+    [InlineData(UserRole.LeadSchoolAdmin)]
     public async Task NonSuperAdminsCannotListPendingContent(UserRole role)
     {
         Login(role);
@@ -310,14 +310,14 @@ public sealed class AccessControlTests : IDisposable
     [Theory]
     [InlineData(UserRole.Student)]
     [InlineData(UserRole.Staff)]
-    [InlineData(UserRole.SchoolAdmin)]
+    [InlineData(UserRole.LeadSchoolAdmin)]
     public async Task NonSuperAdminsCannotOnboardSchoolsOrAdmins(UserRole role)
     {
         Login(role);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/admin/schools",
             new CreateSchoolRequest("Example", "example", "Osun"))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/admin/users",
-            new CreateSchoolAdminRequest("admin@example.test", "test-password-123", "Test", "Admin", _factory.SchoolId))).StatusCode);
+            new CreateInitialLeadSchoolAdminRequest("admin@example.test", "test-password-123", "Test", "Admin", _factory.SchoolId))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/admin/schools")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/admin/users")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.GetAsync("/api/v1/admin/audit")).StatusCode);
@@ -335,9 +335,9 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminCannotReadForeignDraftOrWriteToForeignSchool()
+    public async Task LeadSchoolAdminCannotReadForeignDraftOrWriteToForeignSchool()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync($"/api/v1/content/{_factory.DraftId}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.OtherSchoolId))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/calendar/json",
@@ -346,9 +346,9 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminContentListIncludesOwnUnpublishedItemsAndResponseDetails()
+    public async Task LeadSchoolAdminContentListIncludesOwnUnpublishedItemsAndResponseDetails()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         var startsAt = DateTimeOffset.UtcNow.AddDays(3);
         var endsAt = startsAt.AddHours(2);
         var eventRequest = new CreateContentRequest("Campus event", "Event details", "Event summary", ContentType.Event,
@@ -377,9 +377,9 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminCanUpdateDraftWithoutReplacingItsExistingAudienceRow()
+    public async Task LeadSchoolAdminCanUpdateDraftWithoutReplacingItsExistingAudienceRow()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         var create = await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.SchoolId));
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var created = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
@@ -408,9 +408,9 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminCannotReassignTheirInstitution()
+    public async Task LeadSchoolAdminCannotReassignTheirInstitution()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PutAsJsonAsync("/api/v1/auth/academic-settings",
             Settings(_factory.OtherSchoolId))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.OtherSchoolId))).StatusCode);
@@ -419,7 +419,7 @@ public sealed class AccessControlTests : IDisposable
     [Fact]
     public async Task AudienceCannotReferenceAnotherSchoolsFaculty()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         var request = Content(_factory.SchoolId) with
         {
             Audiences = [new AudienceRequest(_factory.SchoolId, _factory.ForeignFacultyId, null, null, null)]
@@ -547,7 +547,7 @@ public sealed class AccessControlTests : IDisposable
     [InlineData(false)]
     public async Task DisabledUsersOrChangedRolesInvalidateExistingAccessTokens(bool disable)
     {
-        var id = Login(UserRole.SchoolAdmin);
+        var id = Login(UserRole.LeadSchoolAdmin);
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CampusUpdateDbContext>();
         var user = await db.Users.SingleAsync(x => x.Id == id);
@@ -566,7 +566,7 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(HttpStatusCode.Created, schoolResponse.StatusCode);
         var school = await schoolResponse.Content.ReadFromJsonAsync<AdminSchoolResponse>();
         var adminResponse = await _client.PostAsJsonAsync("/api/v1/admin/users",
-            new CreateSchoolAdminRequest("new-admin@example.test", "test-password-123", "School", "Admin", school!.Id));
+            new CreateInitialLeadSchoolAdminRequest("new-admin@example.test", "test-password-123", "School", "Admin", school!.Id));
         Assert.Equal(HttpStatusCode.Created, adminResponse.StatusCode);
         var admin = await adminResponse.Content.ReadFromJsonAsync<AdminUserResponse>(JsonOptions);
         Assert.Equal(UserRole.LeadSchoolAdmin, admin!.Role);
@@ -627,7 +627,7 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(request.EmailNotificationsEnabled, saved!.EmailNotificationsEnabled);
         Assert.Equal(request.SummaryCadence, saved.SummaryCadence);
 
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         var schoolAdminInitial = await _client.GetFromJsonAsync<NotificationPreferencesResponse>(
             "/api/v1/auth/notification-preference", JsonOptions);
         Assert.NotNull(schoolAdminInitial);
@@ -673,6 +673,35 @@ public sealed class AccessControlTests : IDisposable
                 }]
             };
             db.Departments.Add(seededDepartment);
+            var registeredStudent = await db.Users.SingleAsync(x => x.Id == studentId);
+            registeredStudent.DepartmentId = seededDepartment.Id;
+            var registeredStaff = new AppUser
+            {
+                Email = "registered-staff@example.test",
+                PasswordHash = "unused",
+                FirstName = "Registered",
+                LastName = "Staff",
+                Role = UserRole.Staff,
+                InstitutionId = _factory.SchoolId,
+                DepartmentId = seededDepartment.Id,
+                FeedPreference = new FeedPreference()
+            };
+            db.Users.Add(registeredStaff);
+            db.UserActivities.AddRange(
+                new CampusUpdate.Domain.Notifications.UserActivity
+                {
+                    UserId = studentId,
+                    InstitutionId = _factory.SchoolId,
+                    ActivityType = "feed_fetch",
+                    OccurredAt = DateTimeOffset.UtcNow.AddDays(-2)
+                },
+                new CampusUpdate.Domain.Notifications.UserActivity
+                {
+                    UserId = registeredStaff.Id,
+                    InstitutionId = _factory.SchoolId,
+                    ActivityType = "login",
+                    OccurredAt = DateTimeOffset.UtcNow.AddDays(-1)
+                });
             var foreignFaculty = await db.Faculties.SingleAsync(x => x.Id == _factory.ForeignFacultyId);
             var foreignDepartment = new CampusUpdate.Domain.Schools.Department
             {
@@ -699,6 +728,20 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(1, stats.ActiveInstitutions);
         Assert.Equal(1, stats.PendingVerificationInstitutions);
         Assert.Equal(1, stats.StudentsReached);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _client.GetAsync("/api/v1/institution/stats/registrations-by-department")).StatusCode);
+        var departmentStats = await _client.GetFromJsonAsync<DepartmentRegistrationStatsResponse[]>(
+            $"/api/v1/institution/stats/registrations-by-department?institutionId={_factory.SchoolId}", JsonOptions);
+        var departmentStat = Assert.Single(departmentStats!);
+        Assert.Equal(1, departmentStat.StudentRegistrations);
+        Assert.Equal(1, departmentStat.StaffRegistrations);
+        Assert.Equal(2, departmentStat.TotalRegistrations);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _client.GetAsync("/api/v1/institution/stats/weekly-active-students")).StatusCode);
+        var weeklyStats = await _client.GetFromJsonAsync<WeeklyActiveStudentsResponse>(
+            $"/api/v1/institution/stats/weekly-active-students?institutionId={_factory.SchoolId}", JsonOptions);
+        Assert.NotNull(weeklyStats);
+        Assert.Equal(1, weeklyStats.ActiveStudentCount);
         var institutions = await _client.GetFromJsonAsync<InstitutionAdminResponse[]>(
             "/api/v1/institutions", JsonOptions);
         Assert.NotNull(institutions);
@@ -718,7 +761,7 @@ public sealed class AccessControlTests : IDisposable
         var detail = await _client.GetFromJsonAsync<DepartmentAdminResponse>($"/api/v1/departments/{departmentId}", JsonOptions);
         Assert.Equal(departmentId, detail!.Id);
 
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         var schoolInstitutions = await _client.GetFromJsonAsync<InstitutionAdminResponse[]>(
             "/api/v1/institutions", JsonOptions);
         var schoolInstitution = Assert.Single(schoolInstitutions!);
@@ -743,6 +786,17 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(1, schoolAdminStats.ActiveInstitutions);
         Assert.Equal(0, schoolAdminStats.PendingVerificationInstitutions);
         Assert.Equal(1, schoolAdminStats.StudentsReached);
+        var scopedDepartmentStats = await _client.GetFromJsonAsync<DepartmentRegistrationStatsResponse[]>(
+            "/api/v1/institution/stats/registrations-by-department", JsonOptions);
+        Assert.Single(scopedDepartmentStats!);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync($"/api/v1/institution/stats/registrations-by-department?institutionId={_factory.OtherSchoolId}")).StatusCode);
+        var scopedWeeklyStats = await _client.GetFromJsonAsync<WeeklyActiveStudentsResponse>(
+            "/api/v1/institution/stats/weekly-active-students", JsonOptions);
+        Assert.NotNull(scopedWeeklyStats);
+        Assert.Equal(1, scopedWeeklyStats.ActiveStudentCount);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.GetAsync($"/api/v1/institution/stats/weekly-active-students?institutionId={_factory.OtherSchoolId}")).StatusCode);
         var spoofedInstitutionStats = await _client.GetFromJsonAsync<InstitutionStatsResponse>(
             $"/api/v1/institution/stats?institutionId={_factory.OtherSchoolId}", JsonOptions);
         Assert.NotNull(spoofedInstitutionStats);
@@ -804,7 +858,7 @@ public sealed class AccessControlTests : IDisposable
     {
         var (studentId, _) = _factory.AddUser(UserRole.Student);
         _factory.AddUser(UserRole.Staff);
-        _factory.AddUser(UserRole.SchoolAdmin);
+        _factory.AddUser(UserRole.LeadSchoolAdmin);
         var lastActive = DateTimeOffset.UtcNow.AddMinutes(-5);
         using (var scope = _factory.Services.CreateScope())
         {
@@ -884,7 +938,7 @@ public sealed class AccessControlTests : IDisposable
     [Fact]
     public async Task ContentMutationsAreAuditedAndVisibleToSuperAdmin()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.NewsAdmin);
         var created = await _client.PostAsJsonAsync("/api/v1/content/json", Content(_factory.SchoolId));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var content = await created.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
@@ -898,7 +952,7 @@ public sealed class AccessControlTests : IDisposable
         Assert.NotNull(audit);
         Assert.Equal(2, audit.TotalCount);
         Assert.Contains(audit.Items, x => x.Action == "ContentCreated" && x.TargetType == "Content" &&
-            x.ActorEmail != null && x.ActorRole == UserRole.SchoolAdmin && x.InstitutionName == "School A" &&
+            x.ActorEmail != null && x.ActorRole == UserRole.NewsAdmin && x.InstitutionName == "School A" &&
             x.ActionTag == "Access");
         Assert.Contains(audit.Items, x => x.Action == "ContentStatusChanged");
         var searchedAudit = await _client.GetFromJsonAsync<AdminAuditLogPageResponse>(
@@ -908,9 +962,9 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminCanCreateEventSubmitForApprovalAndPublishToStudentFeed()
+    public async Task CalendarAdminCanCreateEventSubmitForApprovalAndPublishToStudentFeed()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.CalendarAdmin);
         var startsAt = DateTimeOffset.UtcNow.AddDays(3);
         var request = new CreateContentRequest(
             "Computing Faculty Seminar", "Join the faculty seminar.", "A seminar for students.",
@@ -990,9 +1044,9 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminCanSubmitCalendarDraftForLeadApproval()
+    public async Task LeadSchoolAdminCanSubmitCalendarDraftForLeadApproval()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         var draftRequest = new CreateAcademicCalendarRequest(_factory.SchoolId, "2026/2027 Draft", "2026/2027",
             "https://example.com/calendar.png", DateTimeOffset.UtcNow, false, "Draft");
         var create = await _client.PostAsJsonAsync("/api/v1/calendar/json", draftRequest);
@@ -1009,7 +1063,7 @@ public sealed class AccessControlTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync("/api/v1/calendar/current")).StatusCode);
 
         var publishResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/publish", null);
-        Assert.Equal(HttpStatusCode.Forbidden, publishResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, publishResponse.StatusCode);
 
         var submitResponse = await _client.PostAsync($"/api/v1/calendar/{draft.Id}/submit", null);
         Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
@@ -1034,7 +1088,7 @@ public sealed class AccessControlTests : IDisposable
     [Fact]
     public async Task CalendarUploadCompressesImageAndRemainsDraftUntilApproved()
     {
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.White, 100, 100);
         var png = image.ToByteArray(ImageMagick.MagickFormat.Png);
         using var form = new MultipartFormDataContent();
@@ -1068,7 +1122,7 @@ public sealed class AccessControlTests : IDisposable
     }
 
     [Fact]
-    public async Task SchoolAdminCanUploadImageToOwnCalendarButNotAnotherInstitution()
+    public async Task LeadSchoolAdminCanUploadImageToOwnCalendarButNotAnotherInstitution()
     {
         Login(UserRole.SuperAdmin);
         var ownCalendarResponse = await _client.PostAsJsonAsync("/api/v1/calendar/json",
@@ -1087,14 +1141,14 @@ public sealed class AccessControlTests : IDisposable
         var foreignCalendar = await foreignCalendarResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
         var publishedCalendar = await publishedCalendarResponse.Content.ReadFromJsonAsync<AcademicCalendarResponse>(JsonOptions);
 
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         Assert.Equal(HttpStatusCode.OK,
             (await _client.PostAsync($"/api/v1/calendar/{publishedCalendar!.Id}/submit", null)).StatusCode);
         Login(UserRole.LeadSchoolAdmin);
         Assert.Equal(HttpStatusCode.OK,
             (await _client.PostAsync($"/api/v1/calendar/{publishedCalendar.Id}/publish", null)).StatusCode);
 
-        Login(UserRole.SchoolAdmin);
+        Login(UserRole.LeadSchoolAdmin);
         using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.CornflowerBlue, 64, 64);
         var png = image.ToByteArray(ImageMagick.MagickFormat.Png);
         using var ownForm = new MultipartFormDataContent();
