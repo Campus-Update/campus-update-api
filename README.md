@@ -56,13 +56,13 @@ The development database password must match `ConnectionStrings__Postgres` in yo
 
 # Foundation API additions
 
-All HTTP routes use `/api/v1`. JWT role values are `Student`, `Staff`, `SchoolAdmin`, `SuperAdmin`. Existing authentication and content contracts remain in place. Development Swagger is available at `/swagger`.
+All HTTP routes use `/api/v1`. JWT role values are `Student`, `Staff`, `LeadSchoolAdmin`, `NewsAdmin`, `CalendarAdmin`, and `SuperAdmin`. Existing authentication and content contracts remain in place. Development Swagger is available at `/swagger`.
 
 | Method and route              | Access                    | Request / result                                                                                                                                       |
 | ----------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | POST `/admin/schools`         | SuperAdmin                | `{name, slug, state, isActive}`; 201 with institution ID and fields; duplicate slug 409                                                                |
-| POST `/admin/users`           | SuperAdmin                | `{email, password, firstName, lastName, institutionId}`; creates a SchoolAdmin for an active institution, 201 without credentials; duplicate email 409 |
-| PATCH `/admin/users/{id}`     | SuperAdmin                | `{role, isActive}`; roles Student/Staff/SchoolAdmin only; invalidates refresh token; 200 without credentials                                           |
+| POST `/admin/users`           | SuperAdmin                | `{email, password, firstName, lastName, institutionId}`; creates a LeadSchoolAdmin for an active institution, 201 without credentials; duplicate email 409 |
+| PATCH `/admin/users/{id}`     | SuperAdmin                | `{role, isActive}`; roles Student/Staff/LeadSchoolAdmin only; invalidates refresh token; 200 without credentials                                           |
 | PUT `/auth/academic-settings` | Authenticated active user | Existing fields plus optional `allCampusFeed` (default false)                                                                                          |
 | GET `/auth/profile`           | Authenticated active user | Existing profile fields plus `allCampusFeed`                                                                                                           |
 

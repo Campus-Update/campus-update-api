@@ -66,7 +66,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             PasswordHash = "unused",
             FirstName = "Author",
             LastName = "Admin",
-            Role = UserRole.SchoolAdmin,
+            Role = UserRole.LeadSchoolAdmin,
             Institution = other,
             FeedPreference = new FeedPreference()
         };

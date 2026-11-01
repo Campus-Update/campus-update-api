@@ -20,7 +20,7 @@ public sealed class MediaController(CampusUpdateDbContext db, IMediaStorage stor
     private const long MaxImageBytes = 5 * 1024 * 1024;
     private const long MaxPdfBytes = 10 * 1024 * 1024;
 
-    [Authorize(Roles = "SchoolAdmin,LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
+    [Authorize(Roles = "LeadSchoolAdmin,NewsAdmin,CalendarAdmin,SuperAdmin")]
     [HttpPost("content/{contentId:guid}")]
     [RequestSizeLimit(MaxPdfBytes)]
     public async Task<ActionResult<MediaUploadResponse>> Upload(Guid contentId, IFormFile file, CancellationToken cancellationToken)

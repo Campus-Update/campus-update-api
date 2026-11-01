@@ -46,7 +46,6 @@ public sealed class CampusUpdateDbContext(DbContextOptions<CampusUpdateDbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasPostgresEnum<UserRole>();
         modelBuilder.HasPostgresEnum<ContentType>();
         modelBuilder.HasPostgresEnum<ContentStatus>();
         modelBuilder.HasPostgresEnum<UrgencyLevel>();

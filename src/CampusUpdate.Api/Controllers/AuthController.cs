@@ -337,7 +337,7 @@ public sealed class AuthController(
         return Ok(await ToProfileResponse(user, cancellationToken));
     }
 
-    [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.LeadSchoolAdmin) + "," +
+    [Authorize(Roles = nameof(UserRole.LeadSchoolAdmin) + "," +
                         nameof(UserRole.NewsAdmin) + "," + nameof(UserRole.CalendarAdmin) + "," +
                         nameof(UserRole.SuperAdmin))]
     [HttpGet("notification-preferences")]
@@ -350,7 +350,7 @@ public sealed class AuthController(
         return Ok(ToNotificationPreferencesResponse(user));
     }
 
-    [Authorize(Roles = nameof(UserRole.SchoolAdmin) + "," + nameof(UserRole.LeadSchoolAdmin) + "," +
+    [Authorize(Roles = nameof(UserRole.LeadSchoolAdmin) + "," +
                         nameof(UserRole.NewsAdmin) + "," + nameof(UserRole.CalendarAdmin) + "," +
                         nameof(UserRole.SuperAdmin))]
     [HttpPut("notification-preferences")]

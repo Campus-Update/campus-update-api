@@ -60,7 +60,7 @@ public static class DevelopmentSeeder
             return user;
         }
         CreateUser("superadmin@campus-update.test", UserRole.SuperAdmin);
-        var admin = CreateUser("admin@campus-update.test", UserRole.SchoolAdmin);
+        var admin = CreateUser("admin@campus-update.test", UserRole.LeadSchoolAdmin);
         CreateUser("student@campus-update.test", UserRole.Student);
         CreateUser("staff@campus-update.test", UserRole.Staff);
         var publishedAt = DateTimeOffset.UtcNow;

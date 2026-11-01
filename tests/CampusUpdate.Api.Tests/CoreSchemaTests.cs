@@ -11,6 +11,14 @@ namespace CampusUpdate.Api.Tests;
 public sealed class CoreSchemaTests
 {
     [Fact]
+    public void RetiredSchoolAdminRoleKeepsItsNumericSlotReserved()
+    {
+        Assert.False(Enum.IsDefined((UserRole)2));
+        Assert.Equal(3, (int)UserRole.SuperAdmin);
+        Assert.Equal(4, (int)UserRole.LeadSchoolAdmin);
+    }
+
+    [Fact]
     public async Task AcademicHierarchyCanBePersisted()
     {
         await using var db = CreateContext();
@@ -66,7 +74,7 @@ public sealed class CoreSchemaTests
             PasswordHash = "hash",
             FirstName = "School",
             LastName = "Admin",
-            Role = UserRole.SchoolAdmin,
+            Role = UserRole.LeadSchoolAdmin,
             Institution = institution,
             FeedPreference = new FeedPreference()
         };

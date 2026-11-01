@@ -24,7 +24,6 @@ namespace CampusUpdate.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "content_type", new[] { "news", "announcement", "event", "advertisement" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "source_type", new[] { "official", "external", "sponsored" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "urgency_level", new[] { "normal", "important", "urgent" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_role", new[] { "student", "staff", "school_admin", "super_admin", "lead_school_admin", "news_admin", "calendar_admin" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("CampusUpdate.Domain.Content.ContentAttachment", b =>

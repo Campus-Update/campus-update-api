@@ -52,6 +52,22 @@ public sealed record InstitutionStatsResponse(
     int PendingVerificationInstitutions,
     int StudentsReached);
 
+public sealed record DepartmentRegistrationStatsResponse(
+    Guid InstitutionId,
+    string InstitutionName,
+    Guid FacultyId,
+    string FacultyName,
+    Guid DepartmentId,
+    string DepartmentName,
+    int StudentRegistrations,
+    int StaffRegistrations,
+    int TotalRegistrations);
+
+public sealed record WeeklyActiveStudentsResponse(
+    Guid InstitutionId,
+    DateTimeOffset Since,
+    int ActiveStudentCount);
+
 public sealed record DepartmentAdminResponse(
     Guid Id,
     string Name,
@@ -80,13 +96,6 @@ public sealed record AdminPlatformSettingsResponse(
     int InvoiceDays,
     bool HoldEventsUntilPayment,
     DateTimeOffset UpdatedAt);
-
-public sealed record CreateSchoolAdminRequest(
-    [Required, EmailAddress] string Email,
-    [Required, MinLength(12)] string Password,
-    [Required, MaxLength(100)] string FirstName,
-    [Required, MaxLength(100)] string LastName,
-    Guid InstitutionId);
 
 public sealed record CreateInitialLeadSchoolAdminRequest(
     [Required, EmailAddress] string Email,
