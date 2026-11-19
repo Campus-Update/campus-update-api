@@ -95,4 +95,7 @@ public sealed record ContentResponse(
     DateTimeOffset? CreatedAt = null,
     DateTimeOffset? UpdatedAt = null,
     string? ImageUrl = null,
-    bool IsEmergencyAlert = false);
+    bool IsEmergencyAlert = false)
+{
+    public IReadOnlyCollection<AudienceRequest> Audiences { get; init; } = [];
+}

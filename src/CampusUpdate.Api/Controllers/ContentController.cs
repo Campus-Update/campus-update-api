@@ -185,7 +185,9 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             return Forbid();
         if (item.Status is ContentStatus.Published or ContentStatus.Archived) return Conflict(new ProblemDetails { Title = "Published content must be archived before editing." });
         var previousStatus = item.Status;
-        if (request.Audiences.Count == 0 || (user.Role != UserRole.SuperAdmin && request.Audiences.Any(a => a.InstitutionId != user.InstitutionId))) return Forbid();
+        if (request.Audiences is null || request.Audiences.Count == 0)
+            return BadRequest(new ProblemDetails { Title = "At least one audience is required." });
+        if (user.Role != UserRole.SuperAdmin && request.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
         foreach (var audience in request.Audiences)
             if (!await AudienceIsValid(audience, cancellationToken)) return BadRequest(new ProblemDetails { Title = "The selected audience hierarchy is invalid." });
         if (request.EventEndsAt < request.EventStartsAt) return BadRequest(new ProblemDetails { Title = "EventEndsAt cannot be before EventStartsAt." });
@@ -214,13 +216,21 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (user.Role != UserRole.SuperAdmin && item.Audiences.Any(a => a.InstitutionId != user.InstitutionId)) return Forbid();
         var allowed = request.Status switch
         {
-            ContentStatus.PendingApproval => user.Role != UserRole.LeadSchoolAdmin && item.Status == ContentStatus.Draft,
+            ContentStatus.PendingApproval => item.Status == ContentStatus.Draft,
             ContentStatus.Published => (user.Role is UserRole.SuperAdmin or UserRole.LeadSchoolAdmin) && item.Status == ContentStatus.PendingApproval,
             ContentStatus.Rejected => (user.Role is UserRole.SuperAdmin or UserRole.LeadSchoolAdmin) && item.Status == ContentStatus.PendingApproval,
             ContentStatus.Archived => item.Status == ContentStatus.Published,
             _ => false
         };
-        if (!allowed) return BadRequest(new ProblemDetails { Title = "Invalid content status transition." });
+        if (!allowed)
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Invalid content status transition.",
+                Detail = $"Cannot change {item.Status} to {request.Status}. Submit a Draft as PendingApproval before publishing or rejecting it."
+            });
+        if (user.Role == UserRole.LeadSchoolAdmin && item.AuthorId == user.Id &&
+            request.Status is ContentStatus.Published or ContentStatus.Rejected)
+            return Forbid();
         var previousStatus = item.Status;
         item.Status = request.Status; item.PublishedAt = request.Status == ContentStatus.Published ? DateTimeOffset.UtcNow : item.PublishedAt;
         Audit("ContentStatusChanged", item.Id, item.Audiences.First().InstitutionId,
@@ -261,7 +271,7 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         if (request.Type == ContentType.Announcement && request.Urgency == UrgencyLevel.Urgent &&
             author.Role != UserRole.LeadSchoolAdmin)
             return Forbid();
-        if (request.Audiences.Count == 0)
+        if (request.Audiences is null || request.Audiences.Count == 0)
             return BadRequest(new ProblemDetails { Title = "At least one audience is required." });
         if (author.Role != UserRole.SuperAdmin && request.Audiences.Any(x => x.InstitutionId != author.InstitutionId))
             return Forbid();
@@ -349,7 +359,10 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
         {
             audiences = JsonSerializer.Deserialize<List<AudienceRequest>>(
                 request.AudiencesJson,
-                new JsonSerializerOptions { Converters = { new JsonStringEnumConverter() } });
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)
+                {
+                    Converters = { new JsonStringEnumConverter() }
+                });
         }
         catch (JsonException)
         {
@@ -443,7 +456,8 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
                 await db.SaveChangesAsync(cancellationToken);
             }
         }
-        return Ok(item with { ImageUrl = await SignImageUrlAsync(item.ImageUrl, cancellationToken) });
+        var responses = await AddSignedImageUrlsAsync([item], cancellationToken);
+        return Ok(responses.Single());
     }
 
     private async Task<bool> AudienceIsValid(AudienceRequest audience, CancellationToken cancellationToken)
@@ -471,6 +485,8 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             ? await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.IsActive, cancellationToken) : null;
 
     private static ContentAudience ToAudience(AudienceRequest a) => new() { TargetAudience = a.TargetAudience, InstitutionId = a.InstitutionId, FacultyId = a.FacultyId, DepartmentId = a.DepartmentId, ProgrammeId = a.ProgrammeId, AcademicLevelId = a.AcademicLevelId };
+    private static AudienceRequest ToAudienceResponse(ContentAudience a) => new(
+        a.InstitutionId, a.FacultyId, a.DepartmentId, a.ProgrammeId, a.AcademicLevelId, a.TargetAudience);
     private void ReplaceAudiences(ContentItem item, IReadOnlyCollection<AudienceRequest> requested)
     {
         var unmatched = item.Audiences.ToList();
@@ -512,14 +528,33 @@ public sealed class ContentController(CampusUpdateDbContext db, NotificationDisp
             x.SourceName, x.PublishedAt, x.Category, uniqueReach, notificationOpens, uniqueReach,
             x.EventStartsAt, x.EventEndsAt, x.EventLocation, x.RegistrationUrl, x.SponsorName, x.TargetUrl,
             x.CreatedAt, x.UpdatedAt, x.CoverImageUrl, x.IsEmergencyAlert);
-        return response with { ImageUrl = await SignImageUrlAsync(response.ImageUrl, cancellationToken) };
+        var audiences = await db.ContentAudiences.AsNoTracking()
+            .Where(a => a.ContentItemId == x.Id)
+            .ToListAsync(cancellationToken);
+        return response with
+        {
+            ImageUrl = await SignImageUrlAsync(response.ImageUrl, cancellationToken),
+            Audiences = audiences.Select(ToAudienceResponse).ToArray()
+        };
     }
 
     private async Task<IReadOnlyCollection<ContentResponse>> AddSignedImageUrlsAsync(
         IReadOnlyCollection<ContentResponse> items,
-        CancellationToken cancellationToken) =>
-        await Task.WhenAll(items.Select(async item =>
-            item with { ImageUrl = await SignImageUrlAsync(item.ImageUrl, cancellationToken) }));
+        CancellationToken cancellationToken)
+    {
+        var ids = items.Select(x => x.Id).ToArray();
+        var audiences = await db.ContentAudiences.AsNoTracking()
+            .Where(a => ids.Contains(a.ContentItemId))
+            .ToListAsync(cancellationToken);
+        var byContent = audiences.GroupBy(a => a.ContentItemId)
+            .ToDictionary(group => group.Key, group =>
+                (IReadOnlyCollection<AudienceRequest>)group.Select(ToAudienceResponse).ToArray());
+        return await Task.WhenAll(items.Select(async item => item with
+        {
+            ImageUrl = await SignImageUrlAsync(item.ImageUrl, cancellationToken),
+            Audiences = byContent.GetValueOrDefault(item.Id) ?? []
+        }));
+    }
 
     private Task<string?> SignImageUrlAsync(string? imageUrl, CancellationToken cancellationToken) =>
         !string.IsNullOrWhiteSpace(imageUrl) && imageUrl.StartsWith("content/", StringComparison.Ordinal)

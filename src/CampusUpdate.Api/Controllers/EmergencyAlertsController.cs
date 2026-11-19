@@ -85,7 +85,12 @@ public sealed class EmergencyAlertsController(
         var response = new ContentResponse(
             item.Id, item.Title, item.Body, item.Type, item.Status, item.Urgency, item.SourceType,
             item.SourceName, item.PublishedAt, item.Category, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
-            IsEmergencyAlert: true);
+            IsEmergencyAlert: true)
+        {
+            Audiences = item.Audiences.Select(a => new AudienceRequest(
+                a.InstitutionId, a.FacultyId, a.DepartmentId, a.ProgrammeId,
+                a.AcademicLevelId, a.TargetAudience)).ToArray()
+        };
         return Created($"/api/v1/content/{item.Id}", response);
     }
 }
