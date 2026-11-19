@@ -136,6 +136,98 @@ public sealed class AdministratorWorkflowTests : IDisposable
     }
 
     [Fact]
+    public async Task LeadCanSubmitOwnNewsForSuperAdminApprovalAndAudiencesAreReturned()
+    {
+        Login(UserRole.LeadSchoolAdmin);
+        var request = new CreateContentRequest(
+            "School update", "Details", null, ContentType.News, UrgencyLevel.Normal,
+            SourceType.Official, "School", null, null, null, null, null, null,
+            [new AudienceRequest(_factory.SchoolId, null, null, null, null, TargetAudience.Students)]);
+        var create = await _client.PostAsJsonAsync("/api/v1/content/json", request);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var draft = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal(TargetAudience.Students, Assert.Single(draft.Audiences).TargetAudience);
+
+        var submit = await _client.PatchAsJsonAsync($"/api/v1/content/{draft.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.PendingApproval));
+        Assert.Equal(HttpStatusCode.OK, submit.StatusCode);
+        var pending = await submit.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.Equal(ContentStatus.PendingApproval, pending!.Status);
+        Assert.Equal(_factory.SchoolId, Assert.Single(pending.Audiences).InstitutionId);
+
+        var ownApproval = await _client.PatchAsJsonAsync($"/api/v1/content/{draft.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.Published));
+        Assert.Equal(HttpStatusCode.Forbidden, ownApproval.StatusCode);
+
+        Login(UserRole.SuperAdmin);
+        var approve = await _client.PatchAsJsonAsync($"/api/v1/content/{draft.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.Published));
+        Assert.Equal(HttpStatusCode.OK, approve.StatusCode);
+        var published = await approve.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.Equal(ContentStatus.Published, published!.Status);
+        Assert.Equal(TargetAudience.Students, Assert.Single(published.Audiences).TargetAudience);
+
+        var fetched = await _client.GetFromJsonAsync<ContentResponse>($"/api/v1/content/{draft.Id}", JsonOptions);
+        Assert.Equal(_factory.SchoolId, Assert.Single(fetched!.Audiences).InstitutionId);
+    }
+
+    [Fact]
+    public async Task LeadCanCreateMultipartNewsWithImageAndAudience()
+    {
+        Login(UserRole.LeadSchoolAdmin);
+        using var image = new ImageMagick.MagickImage(ImageMagick.MagickColors.Blue, 32, 32);
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("School news"), "title");
+        form.Add(new StringContent("Details"), "body");
+        form.Add(new StringContent("News"), "type");
+        form.Add(new StringContent("Normal"), "urgency");
+        form.Add(new StringContent("Official"), "sourceType");
+        form.Add(new StringContent("School"), "sourceName");
+        form.Add(new StringContent(JsonSerializer.Serialize(new[]
+        {
+            new AudienceRequest(_factory.SchoolId, null, null, null, null)
+        }, JsonOptions)), "audiencesJson");
+        var bytes = new ByteArrayContent(image.ToByteArray(ImageMagick.MagickFormat.Png));
+        bytes.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+        form.Add(bytes, "image", "news.png");
+
+        var create = await _client.PostAsync("/api/v1/content", form);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var content = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.NotNull(content);
+        Assert.Equal(ContentStatus.Draft, content.Status);
+        Assert.Single(content.Audiences);
+        Assert.NotNull(content.ImageUrl);
+    }
+
+    [Fact]
+    public async Task SuperAdminCanSubmitAndApproveOwnDraftButCannotPublishItDirectly()
+    {
+        Login(UserRole.SuperAdmin);
+        var request = new CreateContentRequest(
+            "Platform news", "Details", null, ContentType.News, UrgencyLevel.Normal,
+            SourceType.Official, "Platform", null, null, null, null, null, null,
+            [new AudienceRequest(_factory.SchoolId, null, null, null, null)]);
+        var create = await _client.PostAsJsonAsync("/api/v1/content/json", request);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var draft = await create.Content.ReadFromJsonAsync<ContentResponse>(JsonOptions);
+        Assert.NotNull(draft);
+
+        var directPublish = await _client.PatchAsJsonAsync($"/api/v1/content/{draft.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.Published));
+        Assert.Equal(HttpStatusCode.BadRequest, directPublish.StatusCode);
+        Assert.Contains("Submit a Draft as PendingApproval", await directPublish.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, (await _client.PatchAsJsonAsync(
+            $"/api/v1/content/{draft.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.PendingApproval))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PatchAsJsonAsync(
+            $"/api/v1/content/{draft.Id}/status",
+            new ChangeContentStatusRequest(ContentStatus.Published))).StatusCode);
+    }
+
+    [Fact]
     public async Task CalendarAdminMustSubmitDraftBeforeLeadCanPublish()
     {
         Login(UserRole.CalendarAdmin);
